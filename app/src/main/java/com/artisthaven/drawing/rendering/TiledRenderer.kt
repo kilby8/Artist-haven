@@ -62,6 +62,11 @@ class TiledRenderer(
     private val tileCanvas: Canvas = Canvas(tileBitmap)
     private val blitPaint: Paint = Paint(Paint.FILTER_BITMAP_FLAG)
 
+    // Reusable Rect instances — pre-allocated to avoid per-tile GC pressure.
+    private val tileSrcRect: Rect = Rect()
+    private val tileDstRect: Rect = Rect()
+    private val tileDrawRect: Rect = Rect()
+
     // ──────────────────────────────────────────────────────────────────────────
     // Public API
     // ──────────────────────────────────────────────────────────────────────────
@@ -89,9 +94,6 @@ class TiledRenderer(
         // buffer — we must not recycle it.
         val composite: Bitmap = layerManager.flatten()
 
-        val srcRect = Rect()
-        val dstRect = Rect()
-
         for (row in 0 until tileRows) {
             for (col in 0 until tileColumns) {
                 // Source region in the composite bitmap.
@@ -100,7 +102,7 @@ class TiledRenderer(
                 val right  = minOf(left + TILE_SIZE, canvasWidth)
                 val bottom = minOf(top + TILE_SIZE, canvasHeight)
 
-                srcRect.set(left, top, right, bottom)
+                tileSrcRect.set(left, top, right, bottom)
 
                 // Tile dimensions may be smaller than TILE_SIZE at the edges.
                 val tileW = right - left
@@ -108,11 +110,12 @@ class TiledRenderer(
 
                 // Copy the tile region from the composite into the scratch bitmap.
                 // Using Canvas.drawBitmap with a src rect avoids creating a sub-bitmap.
-                tileCanvas.drawBitmap(composite, srcRect, Rect(0, 0, tileW, tileH), blitPaint)
+                tileDrawRect.set(0, 0, tileW, tileH)
+                tileCanvas.drawBitmap(composite, tileSrcRect, tileDrawRect, blitPaint)
 
                 // Blit the scratch tile onto the target canvas at the correct offset.
-                dstRect.set(left, top, right, bottom)
-                targetCanvas.drawBitmap(tileBitmap, Rect(0, 0, tileW, tileH), dstRect, blitPaint)
+                tileDstRect.set(left, top, right, bottom)
+                targetCanvas.drawBitmap(tileBitmap, tileDrawRect, tileDstRect, blitPaint)
             }
         }
     }
@@ -138,8 +141,8 @@ class TiledRenderer(
         val rowEnd   = ceil(dirtyRegion.bottom.toDouble() / TILE_SIZE).toInt()
                            .coerceAtMost(tileRows)
 
-        val srcRect = Rect()
-        val dstRect = Rect()
+        val srcRect = tileSrcRect
+        val dstRect = tileDstRect
 
         for (row in rowStart until rowEnd) {
             for (col in colStart until colEnd) {
@@ -152,10 +155,11 @@ class TiledRenderer(
                 val tileH = bottom - top
 
                 srcRect.set(left, top, right, bottom)
-                tileCanvas.drawBitmap(composite, srcRect, Rect(0, 0, tileW, tileH), blitPaint)
+                tileDrawRect.set(0, 0, tileW, tileH)
+                tileCanvas.drawBitmap(composite, srcRect, tileDrawRect, blitPaint)
 
                 dstRect.set(left, top, right, bottom)
-                targetCanvas.drawBitmap(tileBitmap, Rect(0, 0, tileW, tileH), dstRect, blitPaint)
+                targetCanvas.drawBitmap(tileBitmap, tileDrawRect, dstRect, blitPaint)
             }
         }
     }

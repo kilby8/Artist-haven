@@ -123,6 +123,13 @@ class CustomDrawingCanvas @JvmOverloads constructor(
     /** Elapsed-time counter used by animated AGSL shaders (e.g. watercolor). */
     private val startTimeMs = SystemClock.uptimeMillis()
 
+    /**
+     * Per-brush-type [RuntimeShader] pool.  One shader instance is reused per brush
+     * type; uniforms are updated before each dab stamp to avoid repeated object
+     * allocation on the render thread (which would trigger the GC at 120 Hz).
+     */
+    private val shaderPool: MutableMap<BrushProvider.BrushType, RuntimeShader> = mutableMapOf()
+
     // ──────────────────────────────────────────────────────────────────────────
     // Initialisation
     // ──────────────────────────────────────────────────────────────────────────
@@ -288,23 +295,25 @@ class CustomDrawingCanvas @JvmOverloads constructor(
      * Stamps a single AGSL brush dab onto [layer]'s [android.graphics.Canvas]
      * at the position and pressure specified by [point].
      *
-     * The [RuntimeShader] is created fresh each call via [BrushProvider.createConfigured].
-     * In a production implementation the shader object would be pooled/reused — avoided
-     * here for clarity.
+     * The [RuntimeShader] for the current brush type is retrieved from [shaderPool]
+     * (created on first use) and its uniforms are updated in-place, avoiding
+     * per-dab object allocation at 120 Hz.
      */
     private fun stampDab(layer: Layer, point: StrokePoint) {
         val elapsedSec = (SystemClock.uptimeMillis() - startTimeMs) / 1000f
 
-        val shader: RuntimeShader = BrushProvider.createConfigured(
-            brushType = activeBrushType,
-            centerX   = point.x,
-            centerY   = point.y,
-            radius    = brushRadius * (0.6f + point.pressure * 0.8f),
-            pressure  = point.pressure,
-            r = brushR, g = brushG, b = brushB, a = brushA,
-            time  = elapsedSec,
-            angle = point.orientation
-        )
+        // Retrieve or create the pooled shader for the active brush type.
+        val shader: RuntimeShader = shaderPool.getOrPut(activeBrushType) {
+            BrushProvider.create(activeBrushType)
+        }
+
+        // Update uniforms in-place — no new object allocation.
+        shader.setFloatUniform("center", point.x, point.y)
+        shader.setFloatUniform("radius", brushRadius * (0.6f + point.pressure * 0.8f))
+        shader.setFloatUniform("pressure", point.pressure.coerceIn(0f, 1f))
+        shader.setFloatUniform("color", brushR, brushG, brushB, brushA)
+        shader.setFloatUniform("time", elapsedSec)
+        shader.setFloatUniform("angle", point.orientation)
 
         shaderPaint.shader = shader
         // Draw a small rect around the dab centre — AGSL determines the visible shape.

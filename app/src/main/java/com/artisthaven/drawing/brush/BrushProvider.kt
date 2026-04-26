@@ -25,7 +25,7 @@ import androidx.annotation.RequiresApi
  *  | center     | float2  | Stroke sample position in canvas px coords   |
  *  | radius     | float   | Brush tip radius in pixels                   |
  *  | pressure   | float   | Normalised stylus pressure 0.0 … 1.0         |
- *  | color      | float4  | RGBA brush colour (premultiplied alpha)       |
+ *  | color      | float4  | RGBA brush color (premultiplied alpha)       |
  *  | time       | float   | Elapsed time in seconds (for animated fx)    |
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
