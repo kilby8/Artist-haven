@@ -109,7 +109,7 @@ fun LayerDrawer(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(240.dp)
+                .width(320.dp)
                 .clip(panelShape)
                 .background(GlassBackground)
                 .border(width = 0.5.dp, color = GlassBorder, shape = panelShape)
@@ -124,12 +124,19 @@ fun LayerDrawer(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text(
-                    text = "Layers",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
+                Column {
+                    Text(
+                        text = "Layers",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "${layers.size}",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                }
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier

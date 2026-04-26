@@ -18,7 +18,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            minifyEnabled false
         }
     }
     compileOptions {
@@ -34,15 +34,15 @@ android {
 }
 
 dependencies {
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
-    implementation(libs.constraintlayout)
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     // Low-latency surface rendering (SurfaceControlCompat, CanvasFrontBufferedRenderer)
-    implementation(libs.graphics.core)
+    implementation 'androidx.graphics:graphics-core:1.0.0'
     // Stylus / ink event helpers
-    implementation(libs.input.motionevents)
+    implementation 'androidx.input:input-motionevents:1.0.0-alpha01'
     // ViewModel + coroutines for LayerManager
-    implementation(libs.lifecycle.viewmodel.ktx)
-    implementation(libs.coroutines.android)
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 }
