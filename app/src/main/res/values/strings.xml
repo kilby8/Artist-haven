@@ -1,4 +1,15 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Artist Haven</string>
+    <string name="canvas">Canvas</string>
+    <string name="brushes">Brushes</string>
+    <string name="layers">Layers</string>
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
+    <string name="add_layer">Add Layer</string>
+    <string name="delete_layer">Delete Layer</string>
+    <string name="layer_name">Layer %d</string>
+    <string name="new_project">New Project</string>
+    <string name="save_project">Save Project</string>
+    <string name="export_png">Export PNG</string>
+    <string name="clear_canvas">Clear Canvas</string>
 </resources>
