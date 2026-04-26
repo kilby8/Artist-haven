@@ -132,14 +132,17 @@ class BrushShaderFactory {
     ) {
         shader.setFloatUniform("resolution", width, height)
         shader.setFloatUniform("pressure", pressure)
+        // Each shader declares only one texture-control uniform with a brush-specific name.
+        // We attempt all three names; two will legitimately throw because the uniform does
+        // not exist in that shader's AGSL source — this is the expected (non-error) path.
         try {
-            shader.setFloatUniform("grain", textureParam)
-        } catch (_: Exception) {}
+            shader.setFloatUniform("grain", textureParam)     // pencil shader
+        } catch (_: Exception) { /* uniform absent in watercolor/charcoal shaders */ }
         try {
-            shader.setFloatUniform("wetness", textureParam)
-        } catch (_: Exception) {}
+            shader.setFloatUniform("wetness", textureParam)   // watercolor shader
+        } catch (_: Exception) { /* uniform absent in pencil/charcoal shaders */ }
         try {
-            shader.setFloatUniform("roughness", textureParam)
-        } catch (_: Exception) {}
+            shader.setFloatUniform("roughness", textureParam) // charcoal shader
+        } catch (_: Exception) { /* uniform absent in pencil/watercolor shaders */ }
     }
 }

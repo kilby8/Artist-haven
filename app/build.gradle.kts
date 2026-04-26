@@ -1,19 +1,21 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
+    // Note: kotlin.plugin.compose is a Kotlin 2.0+ concept; with Kotlin 1.9.x the
+    // Compose compiler is wired through composeOptions{} below.
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.artisthaven.app"
-    compileSdk = 35
+    // Default to SDK 34 for maximum pen-input device compatibility
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.artisthaven.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -40,6 +42,11 @@ android {
         compose = true
         buildConfig = true
     }
+    // With Kotlin 1.9.x the Compose compiler extension version is set here.
+    // composeCompiler = "1.5.14" aligns with Kotlin 1.9.24 and Compose BOM 2024.06.00.
+    composeOptions {
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
+    }
 }
 
 dependencies {
@@ -55,23 +62,39 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
 
-    // Jetpack Graphics for low-latency rendering
+    // ── Drawing Engine ───────────────────────────────────────────────────────
+    // Jetpack Graphics — Apache 2.0
+    // Provides CanvasBufferedRenderer for ultra-low-latency, hardware-accelerated
+    // stroke rendering via the Skia 2D graphics engine.
     implementation(libs.androidx.graphics.core)
 
-    // Room Database
+    // androidx.ink — Apache 2.0
+    // Google's open-source Ink API purpose-built for pen-to-screen applications.
+    // ink-authoring : captures raw MotionEvent input with stroke smoothing & prediction
+    // ink-rendering : renders in-progress and committed strokes via SurfaceView/Canvas
+    // ink-geometry  : bezier/path math utilities for stroke manipulation
+    // ink-brush     : configurable brush model (size, opacity, tip shape)
+    implementation(libs.ink.authoring)
+    implementation(libs.ink.rendering)
+    implementation(libs.ink.geometry)
+    implementation(libs.ink.brush)
+
+    // ── Persistence ──────────────────────────────────────────────────────────
+    // Room — Apache 2.0, project metadata storage
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Hilt DI
+    // ── Dependency Injection ─────────────────────────────────────────────────
+    // Hilt — Apache 2.0
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 
-    // Coroutines
+    // ── Async ────────────────────────────────────────────────────────────────
     implementation(libs.kotlinx.coroutines.android)
 
-    // Testing
+    // ── Testing ──────────────────────────────────────────────────────────────
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)

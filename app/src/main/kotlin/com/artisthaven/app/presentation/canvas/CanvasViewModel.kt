@@ -320,6 +320,10 @@ private class StrokeCommand(
     override val description: String = "Stroke with ${stroke.brushSnapshot.type.displayName}"
 
     override fun execute() {
+        // Memory trade-off: capturing a full-layer snapshot per stroke is simple and
+        // correct but costs ~16 MB per undo entry for a 2048×2048 ARGB_8888 canvas.
+        // CommandHistory caps history at maxSize=50 to bound peak usage (~800 MB worst
+        // case). A future optimisation can store per-stroke bounding-box patches instead.
         if (undoBitmap == null) {
             undoBitmap = targetBitmap.copy(targetBitmap.config ?: Bitmap.Config.ARGB_8888, true)
         }
