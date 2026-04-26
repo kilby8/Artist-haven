@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushType
+import com.artisthaven.app.ui.components.ColorPickerDisc
 
 /**
  * Sidebar for brush selection and configuration.
@@ -104,13 +105,14 @@ fun BrushSidebar(
     }
 
     if (showColorPicker) {
-        ColorPickerDialog(
-            currentColor = selectedColor,
+        ColorPickerDisc(
+            visible = showColorPicker,
+            initialColor = selectedColor,
             onColorSelected = { color ->
                 onColorSelected(color)
                 showColorPicker = false
             },
-            onDismiss = { showColorPicker = false },
+            onDismiss = { showColorPicker = false }
         )
     }
 }
@@ -171,62 +173,7 @@ private fun VerticalSlider(
 }
 
 @Composable
-private fun ColorPickerDialog(
-    currentColor: Color,
-    onColorSelected: (Color) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val presetColors = listOf(
-        Color.Black, Color.White, Color.Red, Color.Green, Color.Blue,
-        Color.Yellow, Color(0xFFFF6600), Color(0xFF9900FF), Color(0xFF00CCFF),
-        Color(0xFF8B4513), Color(0xFF228B22), Color(0xFF191970),
-        Color.Gray, Color.LightGray, Color(0xFFFFB6C1), Color(0xFFADD8E6),
-    )
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Select Color") },
-        text = {
-            Column {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(currentColor)
-                )
-                Spacer(Modifier.height(12.dp))
-
-                LazyColumn {
-                    items(presetColors.chunked(4)) { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { color ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(color)
-                                        .border(
-                                            width = if (color == currentColor) 3.dp else 1.dp,
-                                            color = if (color == currentColor)
-                                                MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.outline,
-                                            shape = CircleShape,
-                                        )
-                                        .clickable { onColorSelected(color) }
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        },
-    )
-}
 
 private fun brushTypeIcon(brushType: BrushType): ImageVector = when (brushType) {
     BrushType.PENCIL -> Icons.Default.Edit
