@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artist Haven - APK Download</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .version-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+
+        .version-info .label {
+            color: #999;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .version-info .value {
+            color: #333;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .info-box {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #eee;
+            text-align: center;
+        }
+
+        .info-box .label {
+            color: #999;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .info-box .value {
+            color: #333;
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+
+        .download-section {
+            margin-bottom: 30px;
+        }
+
+        .download-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .download-btn:active {
+            transform: translateY(0);
+        }
+
+        .download-btn.secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .download-btn.secondary:hover {
+            background: #f9f9f9;
+        }
+
+        .icon {
+            font-size: 1.3em;
+        }
+
+        .features {
+            background: #f0f4ff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .features h3 {
+            color: #333;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+
+        .features ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .features li {
+            color: #555;
+            padding: 6px 0;
+            padding-left: 25px;
+            position: relative;
+            font-size: 0.95em;
+        }
+
+        .features li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .instructions {
+            background: #fff9e6;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #ffc107;
+            margin-bottom: 25px;
+        }
+
+        .instructions h3 {
+            color: #333;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+
+        .instructions ol {
+            padding-left: 20px;
+            color: #555;
+            font-size: 0.95em;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .status {
+            background: #e8f5e9;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 20px;
+            border-left: 4px solid #4caf50;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            border-left-color: #4caf50;
+            color: #2e7d32;
+        }
+
+        .status.error {
+            background: #ffebee;
+            border-left-color: #f44336;
+            color: #c62828;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+            color: #1565c0;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .footer {
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            margin-top: 20px;
+        }
+
+        .last-updated {
+            color: #999;
+            font-size: 0.85em;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .qr-section {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 25px;
+            border-top: 1px solid #eee;
+        }
+
+        .qr-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1em;
+        }
+
+        .qr-placeholder {
+            background: #f5f5f5;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            display: inline-block;
+            color: #999;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 25px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Artist Haven</h1>
+            <p>Professional Drawing Application</p>
+        </div>
+
+        <div class="version-info">
+            <div class="label">Latest Version</div>
+            <div class="value" id="versionDisplay">1.0 • Build 1</div>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-box">
+                <div class="label">Package</div>
+                <div class="value">com.artisthaven.app</div>
+            </div>
+            <div class="info-box">
+                <div class="label">Min Android</div>
+                <div class="value">API 26+</div>
+            </div>
+            <div class="info-box">
+                <div class="label">File Size</div>
+                <div class="value" id="fileSizeDisplay">--</div>
+            </div>
+            <div class="info-box">
+                <div class="label">Build Type</div>
+                <div class="value">Release</div>
+            </div>
+        </div>
+
+        <div class="features">
+            <h3>✨ Latest Features</h3>
+            <ul>
+                <li>50+ Unique Brush Styles</li>
+                <li>Advanced Brush Library UI</li>
+                <li>Real-time Pressure Sensitivity</li>
+                <li>Professional Shader Effects</li>
+                <li>Layer Management System</li>
+                <li>Undo/Redo Support</li>
+            </ul>
+        </div>
+
+        <div id="statusMessage" class="status"></div>
+
+        <div class="download-section">
+            <button class="download-btn" id="downloadBtn" onclick="downloadAPK()">
+                <span class="icon">📥</span>
+                <span>Download APK for Testing</span>
+            </button>
+            <button class="download-btn secondary" id="buildBtn" onclick="showBuildInstructions()">
+                <span class="icon">🔨</span>
+                <span>Build Locally</span>
+            </button>
+        </div>
+
+        <div class="instructions">
+            <h3>📋 Installation Instructions</h3>
+            <ol>
+                <li><strong>Enable Unknown Sources:</strong> Go to Settings → Security → Unknown Sources (or Developer Options) and toggle ON</li>
+                <li><strong>Download APK:</strong> Click the download button above or scan the QR code</li>
+                <li><strong>Open Downloads:</strong> Find the APK file in your Downloads folder</li>
+                <li><strong>Install:</strong> Tap the APK file and confirm installation</li>
+                <li><strong>Grant Permissions:</strong> Allow necessary permissions when prompted</li>
+                <li><strong>Launch:</strong> Open Artist Haven from your apps drawer</li>
+            </ol>
+        </div>
+
+        <div class="instructions" style="background: #f3e5f5; border-left-color: #9c27b0;">
+            <h3>🔨 Build Locally (Alternative)</h3>
+            <ol>
+                <li><code style="background: #fff; padding: 4px 8px; border-radius: 4px; color: #667eea;">./gradlew assembleRelease</code> - Build release APK</li>
+                <li>APK located at: <code style="background: #fff; padding: 4px 8px; border-radius: 4px; color: #667eea;">app/build/outputs/apk/release/app-release.apk</code></li>
+                <li>Transfer to device via USB or ADB</li>
+                <li>Or: <code style="background: #fff; padding: 4px 8px; border-radius: 4px; color: #667eea;">./gradlew installRelease</code> with device connected</li>
+            </ol>
+        </div>
+
+        <div class="qr-section">
+            <h3>📱 QR Code for Download</h3>
+            <div class="qr-placeholder">
+                QR Code would be generated here<br>
+                (Point to: yourserver.com/apk/download)
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Artist Haven v1.0 • Testing Build</p>
+            <div class="last-updated">Last Updated: <span id="lastUpdated">--</span></div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const APK_CONFIG = {
+            versionName: "1.0",
+            versionCode: 1,
+            buildTime: new Date().toLocaleString(),
+            packageName: "com.artisthaven.app",
+            apkPath: "/apk/app-release.apk", // Relative path or full URL
+            minApi: 26,
+            targetApi: 34
+        };
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDisplay();
+            checkAPKAvailability();
+        });
+
+        function updateDisplay() {
+            document.getElementById('versionDisplay').textContent = 
+                `${APK_CONFIG.versionName} • Build ${APK_CONFIG.versionCode}`;
+            document.getElementById('lastUpdated').textContent = APK_CONFIG.buildTime;
+        }
+
+        function checkAPKAvailability() {
+            fetch(APK_CONFIG.apkPath, { method: 'HEAD' })
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById('downloadBtn').disabled = false;
+                        showStatus('APK ready for download', 'success');
+
+                        // Try to get file size
+                        const fileSize = response.headers.get('content-length');
+                        if (fileSize) {
+                            const sizeMB = (parseInt(fileSize) / (1024 * 1024)).toFixed(2);
+                            document.getElementById('fileSizeDisplay').textContent = `${sizeMB} MB`;
+                        }
+                    } else {
+                        showStatus('APK not found. Please build and upload the APK file.', 'error');
+                        document.getElementById('downloadBtn').disabled = true;
+                    }
+                })
+                .catch(error => {
+                    console.log('APK check (offline mode):', error);
+                    // Allow download button in offline mode
+                    document.getElementById('downloadBtn').disabled = false;
+                });
+        }
+
+        function downloadAPK() {
+            const link = document.createElement('a');
+            link.href = APK_CONFIG.apkPath;
+            link.download = `Artist-Haven-v${APK_CONFIG.versionName}.apk`;
+
+            showStatus(`Downloading Artist Haven v${APK_CONFIG.versionName}...`, 'info');
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            setTimeout(() => {
+                showStatus(`✓ Download started! Install on your Android device.`, 'success');
+            }, 500);
+        }
+
+        function showBuildInstructions() {
+            const message = `
+To build the APK locally:
+
+1. Open Terminal/PowerShell in project root
+2. Run: ./gradlew assembleRelease
+3. APK will be at: app/build/outputs/apk/release/app-release.apk
+4. Connect device via USB
+5. Run: adb install -r app/build/outputs/apk/release/app-release.apk
+
+Or use Android Studio:
+- Build > Build Bundle(s) / APK(s) > Build APK(s)
+            `;
+
+            showStatus(message, 'info');
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `status show ${type}`;
+
+            // Auto-hide after 8 seconds
+            setTimeout(() => {
+                statusEl.classList.remove('show');
+            }, 8000);
+        }
+
+        // Keyboard shortcut: Press 'D' to download
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'd' || event.key === 'D') {
+                downloadAPK();
+            }
+        });
+    </script>
+</body>
+</html>
