@@ -4,7 +4,7 @@ import android.graphics.Matrix
 import android.os.Build
 import android.view.MotionEvent
 import androidx.annotation.RequiresApi
-import androidx.input.motionevents.MotionEventExt
+// import androidx.input.motionevents.MotionEventExt  // Alpha dependency - removing for build compatibility
 import com.artisthaven.drawing.canvas.StrokePoint
 
 /**

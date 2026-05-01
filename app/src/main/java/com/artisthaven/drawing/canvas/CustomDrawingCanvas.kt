@@ -15,7 +15,6 @@ import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.annotation.RequiresApi
-import androidx.graphics.surface.SurfaceControlCompat
 import com.artisthaven.drawing.brush.BrushProvider
 import com.artisthaven.drawing.input.InkInputHandler
 import com.artisthaven.drawing.layer.Layer
