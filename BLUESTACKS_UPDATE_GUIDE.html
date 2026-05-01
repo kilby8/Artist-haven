@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artist Haven - BlueStacks Update Guide</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .method {
+            margin-bottom: 40px;
+            padding: 25px;
+            background: #f9f9f9;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+        }
+
+        .method h2 {
+            color: #667eea;
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .method-icon {
+            font-size: 1.8em;
+        }
+
+        .steps {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .steps li {
+            margin: 15px 0;
+            padding: 12px 15px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .steps li strong {
+            color: #667eea;
+        }
+
+        .steps li code {
+            background: #f0f4ff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #856404;
+        }
+
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #155724;
+        }
+
+        .info {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #0c5aa0;
+        }
+
+        .quick-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 40px 0;
+        }
+
+        .quick-link {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.3s;
+            text-decoration: none;
+            display: block;
+        }
+
+        .quick-link:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .quick-link-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .comparison-table th {
+            background: #f5f5f5;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .comparison-table tr:hover {
+            background: #f9f9f9;
+        }
+
+        .speed-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .speed-badge.fast {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .speed-badge.medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .speed-badge.slow {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .download-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 10px 5px;
+            font-weight: 600;
+        }
+
+        .download-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .footer {
+            background: #f5f5f5;
+            padding: 20px 30px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .content {
+                padding: 20px 15px;
+            }
+
+            .method {
+                padding: 15px;
+            }
+
+            .quick-links {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Artist Haven</h1>
+            <p>Update Guide for BlueStacks</p>
+        </div>
+
+        <div class="content">
+            <div class="info">
+                <strong>💡 Tip:</strong> BlueStacks on Windows can access your local network, so you can download directly from the server!
+            </div>
+
+            <h2>⚡ Quick Comparison</h2>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Speed</th>
+                        <th>Ease</th>
+                        <th>Best For</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Direct Browser Download</strong></td>
+                        <td><span class="speed-badge fast">⚡ Fastest</span></td>
+                        <td>Very Easy</td>
+                        <td>Quick updates</td>
+                    </tr>
+                    <tr>
+                        <td><strong>ADB Command</strong></td>
+                        <td><span class="speed-badge fast">⚡ Fast</span></td>
+                        <td>Requires Command Line</td>
+                        <td>Automated updates</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Drag & Drop</strong></td>
+                        <td><span class="speed-badge medium">🔄 Medium</span></td>
+                        <td>Easy</td>
+                        <td>Testing locally</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Manual File Transfer</strong></td>
+                        <td><span class="speed-badge slow">🐌 Slow</span></td>
+                        <td>Complex</td>
+                        <td>Backup option</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Method 1: Browser Download -->
+            <div class="method">
+                <h2><span class="method-icon">📱</span> Method 1: Browser Download (RECOMMENDED)</h2>
+                <p style="margin-bottom: 15px; color: #333;">
+                    <strong>Most convenient!</strong> Download directly in BlueStacks from your Windows computer.
+                </p>
+                <ol class="steps">
+                    <li><strong>Start the server:</strong> <code>python3 apk_server.py</code></li>
+                    <li><strong>Open BlueStacks</strong> and launch its browser</li>
+                    <li><strong>Visit:</strong> <code>http://localhost:8000/DOWNLOAD_APK.html</code> <br>
+                        (or use your computer IP if on different network segment)</li>
+                    <li><strong>Click the download button</strong> - APK downloads to BlueStacks downloads</li>
+                    <li><strong>Open your file manager</strong> in BlueStacks</li>
+                    <li><strong>Navigate to Downloads</strong> folder</li>
+                    <li><strong>Tap the APK file</strong> to install</li>
+                    <li><strong>Grant permissions</strong> and confirm installation</li>
+                </ol>
+                <div class="success">
+                    ✓ App installs automatically, ready to use!
+                </div>
+            </div>
+
+            <!-- Method 2: ADB Command -->
+            <div class="method">
+                <h2><span class="method-icon">⚙️</span> Method 2: ADB Command (FASTEST UPDATE)</h2>
+                <p style="margin-bottom: 15px; color: #333;">
+                    <strong>For rapid iterations!</strong> One command uninstalls old version and installs new one.
+                </p>
+
+                <h3 style="margin: 20px 0 10px 0; color: #333;">Setup (First Time Only):</h3>
+                <ol class="steps">
+                    <li><strong>Enable ADB on BlueStacks:</strong> <br>
+                        BlueStacks Settings → Advanced → Enable Android Debug Bridge</li>
+                    <li><strong>Connect ADB:</strong> <br>
+                        <code>adb connect 127.0.0.1:5555</code></li>
+                    <li><strong>Verify connection:</strong> <br>
+                        <code>adb devices</code> (should show your BlueStacks device)</li>
+                </ol>
+
+                <h3 style="margin: 20px 0 10px 0; color: #333;">Update Command:</h3>
+                <p style="margin-bottom: 10px;">Run this each time you build a new APK:</p>
+                <div style="background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; overflow-x: auto;">
+adb uninstall com.artisthaven.app && adb install app/build/outputs/apk/release/app-release.apk
+                </div>
+
+                <div class="success" style="margin-top: 15px;">
+                    ✓ Old version removed, new version installed - done in seconds!
+                </div>
+            </div>
+
+            <!-- Method 3: Drag & Drop -->
+            <div class="method">
+                <h2><span class="method-icon">🎯</span> Method 3: Drag & Drop (EASIEST)</h2>
+                <p style="margin-bottom: 15px; color: #333;">
+                    <strong>Simple file transfer</strong> - Just drag the APK into BlueStacks.
+                </p>
+                <ol class="steps">
+                    <li><strong>Open the APK location:</strong> <br>
+                        <code>app\build\outputs\apk\release\app-release.apk</code></li>
+                    <li><strong>Have BlueStacks window open</strong></li>
+                    <li><strong>Drag the APK file</strong> into BlueStacks window</li>
+                    <li><strong>BlueStacks will prompt to install</strong> - tap Install</li>
+                    <li><strong>Wait for installation to complete</strong></li>
+                </ol>
+
+                <div class="warning">
+                    ⚠️ <strong>Note:</strong> This may not uninstall the old version first. You might need to manually uninstall the old app before installing a new one if there are conflicts.
+                </div>
+            </div>
+
+            <!-- Method 4: BlueStacks App Manager -->
+            <div class="method">
+                <h2><span class="method-icon">📦</span> Method 4: BlueStacks App Manager</h2>
+                <p style="margin-bottom: 15px; color: #333;">
+                    <strong>Using BlueStacks UI</strong> - Install from local files.
+                </p>
+                <ol class="steps">
+                    <li><strong>In BlueStacks:</strong> Click Menu (top right) → Install APK</li>
+                    <li><strong>Browse to:</strong> <code>app\build\outputs\apk\release\app-release.apk</code></li>
+                    <li><strong>Click Open</strong> - BlueStacks installs automatically</li>
+                    <li><strong>App appears in your apps</strong> - tap to launch</li>
+                </ol>
+
+                <div class="info">
+                    💡 <strong>Pro Tip:</strong> You can create a shortcut on your desktop to this APK file for quick re-installation!
+                </div>
+            </div>
+
+            <!-- Recommended Workflow -->
+            <div class="method" style="background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border-left-color: #28a745;">
+                <h2 style="color: #155724;"><span class="method-icon">🚀</span> Recommended Development Workflow</h2>
+                <p style="color: #155724; margin-bottom: 15px;">
+                    <strong>For rapid testing during development:</strong>
+                </p>
+                <ol class="steps" style="margin-bottom: 20px;">
+                    <li>Build APK in Android Studio</li>
+                    <li>Run one-line ADB command: <br>
+                        <code>adb uninstall com.artisthaven.app && adb install app/build/outputs/apk/release/app-release.apk</code>
+                    </li>
+                    <li>Test immediately in BlueStacks</li>
+                    <li>Make code changes and repeat</li>
+                </ol>
+
+                <p style="color: #155724; font-weight: 600;">
+                    ⏱️ <strong>Total time per update: ~10-15 seconds</strong>
+                </p>
+            </div>
+
+            <!-- Windows Batch Script -->
+            <div class="method">
+                <h2><span class="method-icon">🔄</span> Bonus: Automated Update Script</h2>
+                <p style="margin-bottom: 15px; color: #333;">
+                    <strong>Windows batch file</strong> - Build and install in one click!
+                </p>
+
+                <p style="margin: 15px 0;">Create a file called <code>update-bluestacks.bat</code> in your project root:</p>
+
+                <div style="background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; overflow-x: auto; font-size: 0.9em;">
+@echo off<br>
+echo Building APK...<br>
+call gradlew.bat assembleRelease<br>
+<br>
+if errorlevel 1 (<br>
+&nbsp;&nbsp;echo Build failed!<br>
+&nbsp;&nbsp;exit /b 1<br>
+)<br>
+<br>
+echo.<br>
+echo Uninstalling old version...<br>
+adb uninstall com.artisthaven.app<br>
+<br>
+echo.<br>
+echo Installing new version...<br>
+adb install app\build\outputs\apk\release\app-release.apk<br>
+<br>
+if errorlevel 1 (<br>
+&nbsp;&nbsp;echo Installation failed!<br>
+&nbsp;&nbsp;exit /b 1<br>
+)<br>
+<br>
+echo.<br>
+echo ✓ Update complete!<br>
+pause
+                </div>
+
+                <p style="margin-top: 15px; color: #333;">
+                    <strong>Usage:</strong> Just double-click <code>update-bluestacks.bat</code> and wait for the prompt!
+                </p>
+            </div>
+
+            <!-- Uninstall & Reinstall -->
+            <div class="method">
+                <h2><span class="method-icon">🔄</span> Complete Reinstall (If Something Goes Wrong)</h2>
+                <ol class="steps">
+                    <li><strong>In BlueStacks:</strong> Long-press on Artist Haven app</li>
+                    <li><strong>Select Uninstall</strong> and confirm</li>
+                    <li><strong>Or use ADB:</strong> <br>
+                        <code>adb uninstall com.artisthaven.app</code></li>
+                    <li><strong>Then install fresh:</strong> <br>
+                        <code>adb install app/build/outputs/apk/release/app-release.apk</code></li>
+                </ol>
+            </div>
+
+            <!-- Troubleshooting -->
+            <div class="method" style="background: #fff3cd; border-left-color: #ffc107;">
+                <h2 style="color: #856404;"><span class="method-icon">⚠️</span> Troubleshooting</h2>
+
+                <h3 style="margin: 15px 0 10px 0; color: #856404;">ADB connection fails</h3>
+                <ul class="steps" style="margin-bottom: 20px;">
+                    <li>Check BlueStacks ADB is enabled (Settings → Advanced)</li>
+                    <li>Try: <code>adb connect 127.0.0.1:5555</code></li>
+                    <li>Run: <code>adb devices</code> to verify</li>
+                </ul>
+
+                <h3 style="margin: 15px 0 10px 0; color: #856404;">Installation fails with "App not installed"</h3>
+                <ul class="steps" style="margin-bottom: 20px;">
+                    <li>Uninstall old version first: <code>adb uninstall com.artisthaven.app</code></li>
+                    <li>Make sure APK file exists at the path</li>
+                    <li>Try installing again</li>
+                </ul>
+
+                <h3 style="margin: 15px 0 10px 0; color: #856404;">App crashes on launch</h3>
+                <ul class="steps">
+                    <li>Clear app data: <code>adb shell pm clear com.artisthaven.app</code></li>
+                    <li>Or just uninstall and reinstall fresh</li>
+                </ul>
+            </div>
+
+            <h2 style="margin-top: 40px; margin-bottom: 20px; text-align: center; color: #667eea;">🎯 Quick Action Buttons</h2>
+            <div class="quick-links">
+                <a href="DOWNLOAD_APK.html" class="quick-link">
+                    <div class="quick-link-icon">📥</div>
+                    <div>Download APK</div>
+                    <div style="font-size: 0.85em; opacity: 0.9;">Via Browser</div>
+                </a>
+                <a href="APK_DOWNLOAD_GUIDE.md" class="quick-link">
+                    <div class="quick-link-icon">📖</div>
+                    <div>Full Guide</div>
+                    <div style="font-size: 0.85em; opacity: 0.9;">Detailed Instructions</div>
+                </a>
+                <a href="BUILD_AND_TEST_GUIDE.md" class="quick-link">
+                    <div class="quick-link-icon">🔨</div>
+                    <div>Build Guide</div>
+                    <div style="font-size: 0.85em; opacity: 0.9;">From Source</div>
+                </a>
+            </div>
+
+        </div>
+
+        <div class="footer">
+            <p>Artist Haven v1.0 • BlueStacks Update Guide</p>
+            <p style="margin-top: 10px; opacity: 0.7;">Choose the method that works best for your workflow</p>
+        </div>
+    </div>
+</body>
+</html>
