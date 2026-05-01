@@ -12,6 +12,8 @@ import androidx.lifecycle.viewModelScope
 import com.artisthaven.app.domain.command.CommandHistory
 import com.artisthaven.app.domain.command.DrawingCommand
 import com.artisthaven.app.domain.model.Brush
+import com.artisthaven.app.domain.model.BrushDefinition
+import com.artisthaven.app.domain.model.BrushLibrary
 import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.Layer
@@ -40,13 +42,15 @@ data class CanvasUiState(
     val canRedo: Boolean = false,
     val isLayerDrawerOpen: Boolean = false,
     val isBrushSidebarOpen: Boolean = true,
+    val isBrushLibraryOpen: Boolean = false,
+    val selectedBrushDefinition: BrushDefinition? = null,
     val isExporting: Boolean = false,
     val exportedFilePath: String? = null,
 )
 
 /**
  * ViewModel for the main drawing canvas.
- * Manages drawing state, layer management, and command history.
+ * Manages drawing state, layer management, command history, and brush library integration.
  * Follows Clean Architecture - communicates with domain layer only.
  */
 @HiltViewModel
@@ -131,6 +135,45 @@ class CanvasViewModel @Inject constructor(
                     hardness = brushType.defaultHardness,
                 )
             )
+        }
+    }
+
+    fun selectBrushFromLibrary(brushDefinition: BrushDefinition) {
+        // Map BrushDefinition to closest BrushType
+        val brushType = mapBrushDefinitionToType(brushDefinition)
+
+        val drawingBrush = Brush(
+            type = brushType,
+            size = brushDefinition.defaultSize,
+            opacity = brushDefinition.defaultOpacity,
+            color = _uiState.value.selectedColor,
+            hardness = brushDefinition.defaultHardness,
+            spacing = brushDefinition.spacing,
+            textureStrength = if (brushDefinition.usesShader) brushDefinition.scatter else 0f,
+        )
+
+        _uiState.update { state ->
+            state.copy(
+                activeBrush = drawingBrush,
+                selectedBrushDefinition = brushDefinition,
+                isBrushLibraryOpen = false,
+            )
+        }
+    }
+
+    fun toggleBrushLibrary() {
+        _uiState.update { it.copy(isBrushLibraryOpen = !it.isBrushLibraryOpen) }
+    }
+
+    private fun mapBrushDefinitionToType(definition: BrushDefinition): BrushType {
+        // Map brush library definitions to existing BrushType enum
+        return when {
+            definition.id.startsWith("sketch") -> BrushType.PENCIL
+            definition.id.startsWith("paint") -> BrushType.WATERCOLOR
+            definition.id.startsWith("ink") -> BrushType.PEN
+            definition.id.startsWith("tex") -> BrushType.CHARCOAL
+            definition.id.startsWith("fx") -> BrushType.MARKER
+            else -> BrushType.PEN
         }
     }
 

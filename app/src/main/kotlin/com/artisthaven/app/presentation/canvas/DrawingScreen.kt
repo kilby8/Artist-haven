@@ -17,11 +17,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.artisthaven.app.presentation.brush.BrushSidebar
+import com.artisthaven.app.presentation.brush.library.BrushPaletteDialog
 import com.artisthaven.app.presentation.layer.LayerDrawer
 
 /**
  * Main drawing screen composable.
- * Provides a full-screen canvas with brush sidebar and layer drawer.
+ * Provides a full-screen canvas with brush sidebar, brush library, and layer drawer.
  */
 @Composable
 fun DrawingScreen(
@@ -62,6 +63,7 @@ fun DrawingScreen(
                 onBrushOpacityChanged = { viewModel.updateBrushOpacity(it) },
                 onBrushHardnessChanged = { viewModel.updateBrushHardness(it) },
                 onColorSelected = { viewModel.updateColor(it) },
+                onOpenBrushLibrary = { viewModel.toggleBrushLibrary() },
             )
         }
 
@@ -81,6 +83,14 @@ fun DrawingScreen(
                 onLayerOpacityChanged = { layerId, opacity -> viewModel.updateLayerOpacity(layerId, opacity) },
             )
         }
+
+        // Brush Library Dialog
+        BrushPaletteDialog(
+            visible = uiState.isBrushLibraryOpen,
+            selectedBrushId = uiState.selectedBrushDefinition?.id,
+            onBrushSelected = { brushDef -> viewModel.selectBrushFromLibrary(brushDef) },
+            onDismiss = { viewModel.toggleBrushLibrary() },
+        )
 
         if (uiState.isExporting) {
             CircularProgressIndicator(
@@ -119,6 +129,7 @@ private fun DrawingCanvasArea(
             }
         },
         update = { view ->
+
             view.getActiveBrush = { uiState.activeBrush }
             view.getLayerBitmaps = {
                 uiState.layers

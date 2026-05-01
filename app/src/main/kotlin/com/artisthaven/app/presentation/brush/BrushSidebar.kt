@@ -28,6 +28,7 @@ import com.artisthaven.app.ui.components.ColorPickerDisc
 /**
  * Sidebar for brush selection and configuration.
  * Displays available brush types and allows adjustment of brush properties.
+ * Includes button to open full brush library.
  */
 @Composable
 fun BrushSidebar(
@@ -38,6 +39,7 @@ fun BrushSidebar(
     onBrushOpacityChanged: (Float) -> Unit,
     onBrushHardnessChanged: (Float) -> Unit,
     onColorSelected: (Color) -> Unit,
+    onOpenBrushLibrary: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
@@ -54,6 +56,7 @@ fun BrushSidebar(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        // Color picker circle
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -65,6 +68,25 @@ fun BrushSidebar(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
+        // Brush library button
+        IconButton(
+            onClick = onOpenBrushLibrary,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Palette,
+                contentDescription = "Open Brush Library",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        // Default brush types
         BrushType.entries.forEach { brushType ->
             BrushTypeButton(
                 brushType = brushType,
@@ -75,6 +97,7 @@ fun BrushSidebar(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
+        // Size slider
         Text(
             text = "Size",
             style = MaterialTheme.typography.labelSmall,
@@ -89,6 +112,7 @@ fun BrushSidebar(
             modifier = Modifier.height(80.dp),
         )
 
+        // Opacity slider
         Text(
             text = "Opacity",
             style = MaterialTheme.typography.labelSmall,
@@ -173,8 +197,6 @@ private fun VerticalSlider(
 }
 
 @Composable
-
-
 private fun brushTypeIcon(brushType: BrushType): ImageVector = when (brushType) {
     BrushType.PENCIL -> Icons.Default.Edit
     BrushType.PEN -> Icons.Default.Create
