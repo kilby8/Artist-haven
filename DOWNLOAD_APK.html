@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artist Haven - Download APK</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 60px 40px;
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 20px 60px;
+            font-size: 1.3em;
+            font-weight: 600;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+        }
+
+        .download-btn:active {
+            transform: translateY(-1px);
+        }
+
+        .download-btn.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .status {
+            font-size: 1em;
+            color: #666;
+            margin-top: 20px;
+            min-height: 20px;
+        }
+
+        .status.success {
+            color: #4caf50;
+            font-weight: 600;
+        }
+
+        .status.error {
+            color: #f44336;
+            font-weight: 600;
+        }
+
+        .info {
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 30px;
+            color: #666;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+
+        .info-item {
+            margin: 10px 0;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 0.85em;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 40px 25px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+
+            .icon {
+                font-size: 60px;
+            }
+
+            .download-btn {
+                padding: 16px 40px;
+                font-size: 1.1em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">🎨</div>
+        <h1>Artist Haven</h1>
+        <p class="subtitle">Professional Drawing Application</p>
+
+        <button class="download-btn" id="downloadBtn" onclick="downloadAPK()">
+            📥 Download APK
+        </button>
+
+        <div class="status" id="status"></div>
+
+        <div class="info">
+            <div class="info-item">
+                <span class="info-label">Package:</span> com.artisthaven.app
+            </div>
+            <div class="info-item">
+                <span class="info-label">Min Android:</span> 8.0 (API 26+)
+            </div>
+            <div class="info-item">
+                <span class="info-label">Features:</span> 50+ Brushes, Layers, Effects
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Click the button above to download and install on your Android device</p>
+        </div>
+    </div>
+
+    <script>
+        const APK_URL = '/apk/app-release.apk';
+        const APK_NAME = 'Artist-Haven-v1.0.apk';
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusEl = document.getElementById('status');
+
+        function downloadAPK() {
+            downloadBtn.classList.add('loading');
+            downloadBtn.innerHTML = '<span class="spinner"></span>Downloading...';
+            statusEl.textContent = '';
+
+            // Create a link element and trigger download
+            const link = document.createElement('a');
+            link.href = APK_URL;
+            link.download = APK_NAME;
+
+            // Append to body (required for Firefox)
+            document.body.appendChild(link);
+
+            // Trigger download
+            link.click();
+
+            // Remove the link
+            document.body.removeChild(link);
+
+            // Reset button after a delay
+            setTimeout(() => {
+                downloadBtn.classList.remove('loading');
+                downloadBtn.innerHTML = '📥 Download APK';
+                statusEl.classList.add('success');
+                statusEl.textContent = '✓ Download started! Check your Downloads folder.';
+
+                // Clear status after 5 seconds
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                    statusEl.classList.remove('success');
+                }, 5000);
+            }, 1000);
+        }
+
+        // Check if APK exists on page load
+        window.addEventListener('load', () => {
+            fetch(APK_URL, { method: 'HEAD' })
+                .then(response => {
+                    if (!response.ok) {
+                        statusEl.classList.add('error');
+                        statusEl.textContent = '⚠️ APK not found - please ensure it\'s uploaded to the server';
+                        downloadBtn.disabled = true;
+                    }
+                })
+                .catch(() => {
+                    // Network error or APK not available - still allow download attempt
+                    console.log('APK availability check failed - download may still work if file exists');
+                });
+        });
+
+        // Keyboard shortcut: Press D to download
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'd' || e.key === 'D') {
+                if (!downloadBtn.classList.contains('loading')) {
+                    downloadAPK();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
