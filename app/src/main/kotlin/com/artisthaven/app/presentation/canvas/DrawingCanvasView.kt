@@ -8,6 +8,7 @@ import android.graphics.Paint as AndroidPaint
 import android.graphics.PorterDuff
 import android.os.Build
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewConfiguration
 import com.artisthaven.app.domain.model.Brush
@@ -16,6 +17,8 @@ import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.StrokePoint
 import com.artisthaven.app.presentation.canvas.shaders.BrushShaderFactory
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Custom Android View for low-latency drawing input.
@@ -71,6 +74,47 @@ class DrawingCanvasView(context: Context) : View(context) {
     private var strokeStartY = 0f
     private var strokeStarted = false
 
+    // Viewport transform state (screen = canvas * scale + pan)
+    private var viewportScale = 1f
+    private var viewportPanX = 0f
+    private var viewportPanY = 0f
+    private val minViewportScale = 0.5f
+    private val maxViewportScale = 4f
+    private var lastGestureFocusX = 0f
+    private var lastGestureFocusY = 0f
+    private var isTransformGesture = false
+
+    private val scaleGestureDetector = ScaleGestureDetector(
+        context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                isTransformGesture = true
+                lastGestureFocusX = detector.focusX
+                lastGestureFocusY = detector.focusY
+                return true
+            }
+
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val oldScale = viewportScale
+                val targetScale = (viewportScale * detector.scaleFactor)
+                    .coerceIn(minViewportScale, maxViewportScale)
+
+                if (targetScale == oldScale) return false
+
+                // Zoom around the focal point to keep pinch target stationary.
+                val focusX = detector.focusX
+                val focusY = detector.focusY
+                val scaleRatio = targetScale / oldScale
+                viewportPanX = focusX - (focusX - viewportPanX) * scaleRatio
+                viewportPanY = focusY - (focusY - viewportPanY) * scaleRatio
+                viewportScale = targetScale
+                constrainViewportPan()
+                invalidate()
+                return true
+            }
+        }
+    )
+
     // AGSL RuntimeShader factory for organic brush textures on Android 13+ (API 33).
     // @SuppressLint("NewApi") is safe here — instantiation is guarded by the SDK_INT check.
     @SuppressLint("NewApi")
@@ -95,6 +139,10 @@ class DrawingCanvasView(context: Context) : View(context) {
     override fun onDraw(canvas: AndroidCanvas) {
         super.onDraw(canvas)
 
+        canvas.save()
+        canvas.translate(viewportPanX, viewportPanY)
+        canvas.scale(viewportScale, viewportScale)
+
         getLayerBitmaps?.invoke()?.forEach { (bitmap, opacity) ->
             val paint = AndroidPaint()
             paint.alpha = (opacity * 255).toInt()
@@ -102,10 +150,25 @@ class DrawingCanvasView(context: Context) : View(context) {
         }
 
         previewBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isPalmContact(event)) return false
+
+        scaleGestureDetector.onTouchEvent(event)
+
+        if (event.pointerCount >= 2) {
+            handleTransformPan(event)
+            return true
+        }
+
+        if (isTransformGesture) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                isTransformGesture = false
+            }
+            return true
+        }
 
         val brush = getActiveBrush?.invoke() ?: return false
 
@@ -158,6 +221,8 @@ class DrawingCanvasView(context: Context) : View(context) {
     }
 
     private fun startStroke(event: MotionEvent, brush: Brush) {
+        if (isTransformGesture) return
+
         // Record start position for touch-slop guard
         strokeStartX = event.x
         strokeStartY = event.y
@@ -181,8 +246,8 @@ class DrawingCanvasView(context: Context) : View(context) {
 
         currentStrokePoints.add(
             StrokePoint(
-                x = event.getHistoricalX(0, historyIndex),
-                y = event.getHistoricalY(0, historyIndex),
+                x = screenToCanvasX(event.getHistoricalX(0, historyIndex)),
+                y = screenToCanvasY(event.getHistoricalY(0, historyIndex)),
                 pressure = pressure,
                 tiltX = tiltDeg,
                 timestamp = event.getHistoricalEventTime(historyIndex),
@@ -199,8 +264,8 @@ class DrawingCanvasView(context: Context) : View(context) {
 
         currentStrokePoints.add(
             StrokePoint(
-                x = event.x,
-                y = event.y,
+                x = screenToCanvasX(event.x),
+                y = screenToCanvasY(event.y),
                 pressure = pressure,
                 tiltX = tiltDeg,
                 timestamp = event.eventTime,
@@ -253,6 +318,67 @@ class DrawingCanvasView(context: Context) : View(context) {
     private fun clearPreview() {
         previewCanvas?.drawColor(0, PorterDuff.Mode.CLEAR)
     }
+
+    private fun handleTransformPan(event: MotionEvent) {
+        val focusX = averagePointerX(event)
+        val focusY = averagePointerY(event)
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount >= 2) {
+                    isTransformGesture = true
+                    lastGestureFocusX = focusX
+                    lastGestureFocusY = focusY
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isTransformGesture && !scaleGestureDetector.isInProgress) {
+                    viewportPanX += focusX - lastGestureFocusX
+                    viewportPanY += focusY - lastGestureFocusY
+                    constrainViewportPan()
+                    invalidate()
+                }
+                lastGestureFocusX = focusX
+                lastGestureFocusY = focusY
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (event.pointerCount <= 2) {
+                    isTransformGesture = false
+                }
+            }
+        }
+    }
+
+    private fun constrainViewportPan() {
+        val scaledWidth = width * viewportScale
+        val scaledHeight = height * viewportScale
+        val minPanX = min(0f, width - scaledWidth)
+        val maxPanX = max(0f, width - scaledWidth)
+        val minPanY = min(0f, height - scaledHeight)
+        val maxPanY = max(0f, height - scaledHeight)
+        viewportPanX = viewportPanX.coerceIn(minPanX, maxPanX)
+        viewportPanY = viewportPanY.coerceIn(minPanY, maxPanY)
+    }
+
+    private fun averagePointerX(event: MotionEvent): Float {
+        var sum = 0f
+        for (i in 0 until event.pointerCount) {
+            sum += event.getX(i)
+        }
+        return sum / event.pointerCount
+    }
+
+    private fun averagePointerY(event: MotionEvent): Float {
+        var sum = 0f
+        for (i in 0 until event.pointerCount) {
+            sum += event.getY(i)
+        }
+        return sum / event.pointerCount
+    }
+
+    private fun screenToCanvasX(screenX: Float): Float = (screenX - viewportPanX) / viewportScale
+
+    private fun screenToCanvasY(screenY: Float): Float = (screenY - viewportPanY) / viewportScale
 
     private fun createPaint(brush: Brush, pressure: Float): AndroidPaint {
         val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)

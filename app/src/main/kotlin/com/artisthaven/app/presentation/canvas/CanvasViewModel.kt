@@ -44,6 +44,7 @@ data class CanvasUiState(
     val isBrushSidebarOpen: Boolean = true,
     val isBrushLibraryOpen: Boolean = false,
     val selectedBrushDefinition: BrushDefinition? = null,
+    val recentBrushDefinitions: List<BrushDefinition> = emptyList(),
     val isExporting: Boolean = false,
     val exportedFilePath: String? = null,
 )
@@ -133,7 +134,8 @@ class CanvasViewModel @Inject constructor(
                     size = brushType.defaultSize,
                     opacity = brushType.defaultOpacity,
                     hardness = brushType.defaultHardness,
-                )
+                ),
+                selectedBrushDefinition = null,
             )
         }
     }
@@ -156,9 +158,14 @@ class CanvasViewModel @Inject constructor(
             state.copy(
                 activeBrush = drawingBrush,
                 selectedBrushDefinition = brushDefinition,
+                recentBrushDefinitions = updatedRecentBrushes(state.recentBrushDefinitions, brushDefinition),
                 isBrushLibraryOpen = false,
             )
         }
+    }
+
+    fun selectRecentBrush(brushDefinition: BrushDefinition) {
+        selectBrushFromLibrary(brushDefinition)
     }
 
     fun toggleBrushLibrary() {
@@ -175,6 +182,14 @@ class CanvasViewModel @Inject constructor(
             definition.id.startsWith("fx") -> BrushType.MARKER
             else -> BrushType.PEN
         }
+    }
+
+    private fun updatedRecentBrushes(
+        current: List<BrushDefinition>,
+        selected: BrushDefinition,
+    ): List<BrushDefinition> {
+        val deduped = current.filterNot { it.id == selected.id }
+        return listOf(selected) + deduped.take(7)
     }
 
     fun updateBrushSize(size: Float) {

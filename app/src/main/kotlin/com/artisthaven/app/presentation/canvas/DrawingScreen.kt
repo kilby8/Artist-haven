@@ -58,7 +58,10 @@ fun DrawingScreen(
             BrushSidebar(
                 activeBrush = uiState.activeBrush,
                 selectedColor = uiState.selectedColor,
+                recentBrushes = uiState.recentBrushDefinitions,
+                selectedBrushDefinitionId = uiState.selectedBrushDefinition?.id,
                 onBrushTypeSelected = { viewModel.selectBrushType(it) },
+                onRecentBrushSelected = { viewModel.selectRecentBrush(it) },
                 onBrushSizeChanged = { viewModel.updateBrushSize(it) },
                 onBrushOpacityChanged = { viewModel.updateBrushOpacity(it) },
                 onBrushHardnessChanged = { viewModel.updateBrushHardness(it) },

@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artisthaven.app.domain.model.Brush
+import com.artisthaven.app.domain.model.BrushDefinition
 import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.ui.components.ColorPickerDisc
 
@@ -34,7 +35,10 @@ import com.artisthaven.app.ui.components.ColorPickerDisc
 fun BrushSidebar(
     activeBrush: Brush,
     selectedColor: Color,
+    recentBrushes: List<BrushDefinition> = emptyList(),
+    selectedBrushDefinitionId: String? = null,
     onBrushTypeSelected: (BrushType) -> Unit,
+    onRecentBrushSelected: (BrushDefinition) -> Unit = {},
     onBrushSizeChanged: (Float) -> Unit,
     onBrushOpacityChanged: (Float) -> Unit,
     onBrushHardnessChanged: (Float) -> Unit,
@@ -95,6 +99,25 @@ fun BrushSidebar(
             )
         }
 
+        if (recentBrushes.isNotEmpty()) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            Text(
+                text = "Recent",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 9.sp,
+            )
+
+            recentBrushes.take(4).forEach { brush ->
+                RecentBrushButton(
+                    brush = brush,
+                    isSelected = selectedBrushDefinitionId == brush.id,
+                    onClick = { onRecentBrushSelected(brush) },
+                )
+            }
+        }
+
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
         // Size slider
@@ -137,6 +160,37 @@ fun BrushSidebar(
                 showColorPicker = false
             },
             onDismiss = { showColorPicker = false }
+        )
+    }
+}
+
+@Composable
+private fun RecentBrushButton(
+    brush: BrushDefinition,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val label = brush.displayName.split(' ').joinToString("") { it.take(1) }.take(3).uppercase()
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 8.sp,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
         )
     }
 }

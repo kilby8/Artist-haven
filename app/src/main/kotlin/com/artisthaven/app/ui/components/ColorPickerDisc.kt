@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,23 +54,26 @@ fun ColorPickerDisc(
             ) {
                 Text("Pick color", style = MaterialTheme.typography.titleMedium)
 
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    maxItemsInEachRow = 4,
-                ) {
-                    swatches.forEach { color ->
-                        val borderColor = if (color == initialColor) MaterialTheme.colorScheme.primary else Color.Transparent
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(color, CircleShape)
-                                .background(borderColor.copy(alpha = if (borderColor == Color.Transparent) 0f else 0.2f), CircleShape)
-                                .clickable {
-                                    onColorSelected(color)
-                                    onDismiss()
-                                }
-                        )
+                for (rowStart in swatches.indices step 4) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        swatches.subList(rowStart, minOf(rowStart + 4, swatches.size)).forEach { color ->
+                            val borderColor =
+                                if (color == initialColor) MaterialTheme.colorScheme.primary
+                                else Color.Transparent
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(color, CircleShape)
+                                    .background(
+                                        borderColor.copy(alpha = if (borderColor == Color.Transparent) 0f else 0.2f),
+                                        CircleShape,
+                                    )
+                                    .clickable {
+                                        onColorSelected(color)
+                                        onDismiss()
+                                    }
+                            )
+                        }
                     }
                 }
             }

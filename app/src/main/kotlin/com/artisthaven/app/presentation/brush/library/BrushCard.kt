@@ -2,6 +2,8 @@ package com.artisthaven.app.presentation.brush.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -16,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artisthaven.app.domain.model.BrushDefinition
 import com.artisthaven.app.domain.model.PressureSensitivityMode
+import kotlin.random.Random
 
 /**
  * Visual card displaying a brush with preview and characteristics.
@@ -133,9 +136,9 @@ fun BrushPreview(
                             alpha = 0.3f
                         ),
                         radius = 2f,
-                        center = androidx.compose.ui.graphics.center.copy(
-                            x = androidx.compose.ui.graphics.center.x + (kotlin.math.random(-20f, 20f)),
-                            y = androidx.compose.ui.graphics.center.y + (kotlin.math.random(-20f, 20f))
+                        center = center.copy(
+                            x = center.x + randomInRange(-20f, 20f),
+                            y = center.y + randomInRange(-20f, 20f)
                         )
                     )
                 }
@@ -181,7 +184,6 @@ fun PressureSensitivityChip(
     }
 }
 
-// Helper function for random value in range
-private fun kotlin.math.random(min: Float, max: Float): Float {
-    return kotlin.math.Random.nextFloat() * (max - min) + min
+private fun randomInRange(min: Float, max: Float): Float {
+    return Random.nextFloat() * (max - min) + min
 }
