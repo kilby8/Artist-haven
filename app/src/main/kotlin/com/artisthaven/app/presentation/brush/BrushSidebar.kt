@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushDefinition
+import com.artisthaven.app.domain.model.BrushPreset
 import com.artisthaven.app.domain.model.BrushProfile
 import com.artisthaven.app.domain.model.BrushStyle
 import com.artisthaven.app.domain.model.BrushType
@@ -42,6 +43,7 @@ fun BrushSidebar(
     selectedBrushDefinition: BrushDefinition? = null,
     selectedBrushDefinitionId: String? = null,
     savedColors: List<Color> = emptyList(),
+    brushPresets: List<BrushPreset> = emptyList(),
     activeBrushStyle: BrushStyle = BrushStyle.STANDARD,
     onBrushTypeSelected: (BrushType) -> Unit,
     onBrushStyleSelected: (BrushStyle) -> Unit = {},
@@ -59,6 +61,9 @@ fun BrushSidebar(
     onCornerSmoothingChanged: (Float) -> Unit = {},
     onSaveColor: (Color) -> Unit = {},
     onRemoveColor: (Color) -> Unit = {},
+    onSavePreset: (String) -> Unit = {},
+    onApplyPreset: (String) -> Unit = {},
+    onDeletePreset: (String) -> Unit = {},
     onOpenBrushLibrary: () -> Unit = {},
     onClose: () -> Unit = {},
     autoHideSeconds: Int = 12,
@@ -66,6 +71,7 @@ fun BrushSidebar(
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
     var showProSettings by remember { mutableStateOf(false) }
+    var showPresetDialog by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
     // Auto-hide: reset the countdown whenever `interactionTick` increments
@@ -113,6 +119,23 @@ fun BrushSidebar(
                 .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
                 .clickable { touched(); showColorPicker = true },
         )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        IconButton(
+            onClick = { touched(); showPresetDialog = true },
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Bookmark,
+                contentDescription = "Brush presets",
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -306,6 +329,16 @@ fun BrushSidebar(
             onCornerSmoothingChanged = onCornerSmoothingChanged,
         )
     }
+
+    if (showPresetDialog) {
+        BrushPresetDialog(
+            presets = brushPresets,
+            onDismiss = { showPresetDialog = false },
+            onSavePreset = onSavePreset,
+            onApplyPreset = onApplyPreset,
+            onDeletePreset = onDeletePreset,
+        )
+    }
 }
 
 @Composable
@@ -493,6 +526,64 @@ private fun SettingSliderRow(
             valueRange = range,
         )
     }
+}
+
+@Composable
+private fun BrushPresetDialog(
+    presets: List<BrushPreset>,
+    onDismiss: () -> Unit,
+    onSavePreset: (String) -> Unit,
+    onApplyPreset: (String) -> Unit,
+    onDeletePreset: (String) -> Unit,
+) {
+    var presetName by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Brush Presets") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = presetName,
+                    onValueChange = { presetName = it },
+                    singleLine = true,
+                    label = { Text("Preset name") },
+                )
+                TextButton(
+                    onClick = {
+                        onSavePreset(presetName)
+                        presetName = ""
+                    },
+                    enabled = presetName.isNotBlank(),
+                ) {
+                    Text("Save current brush")
+                }
+
+                if (presets.isEmpty()) {
+                    Text("No saved presets yet.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    presets.take(12).forEach { preset ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = preset.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { onApplyPreset(preset.id) }) { Text("Apply") }
+                            TextButton(onClick = { onDeletePreset(preset.id) }) { Text("Delete") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+    )
 }
 
 private fun styleChipLabel(style: BrushStyle): String = when (style) {

@@ -77,6 +77,7 @@ fun DrawingScreen(
                 selectedBrushDefinition = uiState.selectedBrushDefinition,
                 selectedBrushDefinitionId = uiState.selectedBrushDefinition?.id,
                 savedColors = uiState.savedColors,
+                brushPresets = uiState.brushPresets,
                 activeBrushStyle = uiState.activeBrush.style,
                 onBrushTypeSelected = { viewModel.selectBrushType(it) },
                 onBrushStyleSelected = { viewModel.selectBrushStyle(it) },
@@ -94,6 +95,9 @@ fun DrawingScreen(
                 onCornerSmoothingChanged = { viewModel.updateCornerSmoothing(it) },
                 onSaveColor = { viewModel.saveColor(it) },
                 onRemoveColor = { viewModel.removeColor(it) },
+                onSavePreset = { viewModel.saveCurrentBrushPreset(it) },
+                onApplyPreset = { viewModel.applyBrushPreset(it) },
+                onDeletePreset = { viewModel.deleteBrushPreset(it) },
                 onOpenBrushLibrary = { viewModel.toggleBrushLibrary() },
                 onClose = { viewModel.toggleBrushSidebar() },
             )

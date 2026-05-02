@@ -14,6 +14,7 @@ import com.artisthaven.app.domain.command.DrawingCommand
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushDefinition
 import com.artisthaven.app.domain.model.BrushLibrary
+import com.artisthaven.app.domain.model.BrushPreset
 import com.artisthaven.app.domain.model.BrushProfile
 import com.artisthaven.app.domain.model.BrushStyle
 import com.artisthaven.app.domain.model.BrushType
@@ -59,6 +60,7 @@ data class CanvasUiState(
     val styleProfiles: Map<BrushStyle, BrushProfile> = BrushStyle.entries.associateWith { style ->
         BrushProfile.preset(style)
     },
+    val brushPresets: List<BrushPreset> = emptyList(),
 )
 
 data class SavedProjectItem(
@@ -210,6 +212,38 @@ class CanvasViewModel @Inject constructor(
 
     fun selectRecentBrush(brushDefinition: BrushDefinition) {
         selectBrushFromLibrary(brushDefinition)
+    }
+
+    fun saveCurrentBrushPreset(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+
+        _uiState.update { state ->
+            val preset = BrushPreset(
+                id = UUID.randomUUID().toString(),
+                name = trimmed,
+                brush = state.activeBrush,
+            )
+            state.copy(brushPresets = (listOf(preset) + state.brushPresets).take(24))
+        }
+    }
+
+    fun applyBrushPreset(presetId: String) {
+        _uiState.update { state ->
+            val preset = state.brushPresets.firstOrNull { it.id == presetId } ?: return@update state
+            val updatedProfiles = state.styleProfiles + (preset.brush.style to preset.brush.profile)
+            state.copy(
+                activeBrush = preset.brush,
+                selectedColor = preset.brush.color,
+                styleProfiles = updatedProfiles,
+            )
+        }
+    }
+
+    fun deleteBrushPreset(presetId: String) {
+        _uiState.update { state ->
+            state.copy(brushPresets = state.brushPresets.filterNot { it.id == presetId })
+        }
     }
 
     fun selectBrushStyle(style: BrushStyle) {
