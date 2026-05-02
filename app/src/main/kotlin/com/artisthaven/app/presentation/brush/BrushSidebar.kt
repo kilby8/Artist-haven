@@ -25,6 +25,7 @@ import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushDefinition
 import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.ui.components.ColorPickerDisc
+import kotlinx.coroutines.delay
 
 /**
  * Sidebar for brush selection and configuration.
@@ -48,10 +49,22 @@ fun BrushSidebar(
     onSaveColor: (Color) -> Unit = {},
     onRemoveColor: (Color) -> Unit = {},
     onOpenBrushLibrary: () -> Unit = {},
+    onClose: () -> Unit = {},
+    autoHideSeconds: Int = 12,
     modifier: Modifier = Modifier,
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+
+    // Auto-hide: reset the countdown whenever `interactionTick` increments
+    var interactionTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(interactionTick) {
+        delay(autoHideSeconds * 1_000L)
+        onClose()
+    }
+
+    // Helper to bump the inactivity timer on any sidebar tap
+    fun touched() { interactionTick++ }
 
     Column(
         modifier = modifier
@@ -66,6 +79,19 @@ fun BrushSidebar(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        // ── Close / hide button ───────────────────────────────────────
+        IconButton(
+            onClick = { touched(); onClose() },
+            modifier = Modifier.size(36.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.ChevronLeft,
+                contentDescription = "Hide brush sidebar",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
         // Color picker circle
         Box(
             modifier = Modifier
@@ -73,14 +99,14 @@ fun BrushSidebar(
                 .clip(CircleShape)
                 .background(selectedColor)
                 .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                .clickable { showColorPicker = true },
+                .clickable { touched(); showColorPicker = true },
         )
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
         // Brush library button
         IconButton(
-            onClick = onOpenBrushLibrary,
+            onClick = { touched(); onOpenBrushLibrary() },
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(8.dp))
@@ -123,7 +149,7 @@ fun BrushSidebar(
             BrushTypeButton(
                 brushType = brushType,
                 isSelected = activeBrush.type == brushType,
-                onClick = { onBrushTypeSelected(brushType) },
+                onClick = { touched(); onBrushTypeSelected(brushType) },
             )
         }
 
@@ -141,7 +167,7 @@ fun BrushSidebar(
                 RecentBrushButton(
                     brush = brush,
                     isSelected = selectedBrushDefinitionId == brush.id,
-                    onClick = { onRecentBrushSelected(brush) },
+                    onClick = { touched(); onRecentBrushSelected(brush) },
                 )
             }
         }

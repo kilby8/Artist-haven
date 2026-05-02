@@ -86,6 +86,7 @@ fun DrawingScreen(
                 onSaveColor = { viewModel.saveColor(it) },
                 onRemoveColor = { viewModel.removeColor(it) },
                 onOpenBrushLibrary = { viewModel.toggleBrushLibrary() },
+                onClose = { viewModel.toggleBrushSidebar() },
             )
         }
 
