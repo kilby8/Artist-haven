@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushDefinition
+import com.artisthaven.app.domain.model.BrushProfile
 import com.artisthaven.app.domain.model.BrushStyle
 import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.ui.components.ColorPickerDisc
@@ -49,6 +50,13 @@ fun BrushSidebar(
     onBrushOpacityChanged: (Float) -> Unit,
     onBrushHardnessChanged: (Float) -> Unit,
     onColorSelected: (Color) -> Unit,
+    onDynamicsPowerCurveChanged: (Float) -> Unit = {},
+    onGrainScaleChanged: (Float) -> Unit = {},
+    onGrainStrengthChanged: (Float) -> Unit = {},
+    onTipSpacingChanged: (Float) -> Unit = {},
+    onTipJitterChanged: (Float) -> Unit = {},
+    onEdgeSoftnessChanged: (Float) -> Unit = {},
+    onCornerSmoothingChanged: (Float) -> Unit = {},
     onSaveColor: (Color) -> Unit = {},
     onRemoveColor: (Color) -> Unit = {},
     onOpenBrushLibrary: () -> Unit = {},
@@ -57,6 +65,7 @@ fun BrushSidebar(
     modifier: Modifier = Modifier,
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
+    var showProSettings by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
     // Auto-hide: reset the countdown whenever `interactionTick` increments
@@ -104,6 +113,16 @@ fun BrushSidebar(
                 .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
                 .clickable { touched(); showColorPicker = true },
         )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        OutlinedButton(
+            onClick = { touched(); showProSettings = true },
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.width(64.dp),
+        ) {
+            Text("Tune", fontSize = 9.sp)
+        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -272,6 +291,21 @@ fun BrushSidebar(
             onDismiss = { showColorPicker = false },
         )
     }
+
+    if (showProSettings) {
+        BrushProSettingsDialog(
+            style = activeBrushStyle,
+            profile = activeBrush.profile,
+            onDismiss = { showProSettings = false },
+            onDynamicsPowerCurveChanged = onDynamicsPowerCurveChanged,
+            onGrainScaleChanged = onGrainScaleChanged,
+            onGrainStrengthChanged = onGrainStrengthChanged,
+            onTipSpacingChanged = onTipSpacingChanged,
+            onTipJitterChanged = onTipJitterChanged,
+            onEdgeSoftnessChanged = onEdgeSoftnessChanged,
+            onCornerSmoothingChanged = onCornerSmoothingChanged,
+        )
+    }
 }
 
 @Composable
@@ -368,6 +402,97 @@ private fun brushTypeIcon(brushType: BrushType): ImageVector = when (brushType) 
     BrushType.WATERCOLOR -> Icons.Default.Water
     BrushType.CHARCOAL -> Icons.Default.Brush
     BrushType.ERASER -> Icons.Default.AutoFixNormal
+}
+
+@Composable
+private fun BrushProSettingsDialog(
+    style: BrushStyle,
+    profile: BrushProfile,
+    onDismiss: () -> Unit,
+    onDynamicsPowerCurveChanged: (Float) -> Unit,
+    onGrainScaleChanged: (Float) -> Unit,
+    onGrainStrengthChanged: (Float) -> Unit,
+    onTipSpacingChanged: (Float) -> Unit,
+    onTipJitterChanged: (Float) -> Unit,
+    onEdgeSoftnessChanged: (Float) -> Unit,
+    onCornerSmoothingChanged: (Float) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pro Settings - ${style.displayName}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingSliderRow(
+                    label = "Power Curve",
+                    value = profile.dynamics.powerCurveExponent,
+                    range = 0.7f..3.0f,
+                    onValueChange = onDynamicsPowerCurveChanged,
+                )
+                SettingSliderRow(
+                    label = "Edge Softness",
+                    value = profile.edge.softness,
+                    range = 0f..0.8f,
+                    onValueChange = onEdgeSoftnessChanged,
+                )
+                SettingSliderRow(
+                    label = "Corner Smooth",
+                    value = profile.edge.cornerSmoothingPx,
+                    range = 0f..28f,
+                    onValueChange = onCornerSmoothingChanged,
+                )
+
+                if (style == BrushStyle.TEXTURED_CHARCOAL) {
+                    SettingSliderRow(
+                        label = "Grain Scale",
+                        value = profile.grain.scale,
+                        range = 0.2f..3.0f,
+                        onValueChange = onGrainScaleChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Grain Strength",
+                        value = profile.grain.strength,
+                        range = 0f..1f,
+                        onValueChange = onGrainStrengthChanged,
+                    )
+                }
+
+                if (style == BrushStyle.PATTERN_STAMP) {
+                    SettingSliderRow(
+                        label = "Stamp Spacing",
+                        value = profile.tip.spacing,
+                        range = 0.05f..0.7f,
+                        onValueChange = onTipSpacingChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Stamp Jitter",
+                        value = profile.tip.jitter,
+                        range = 0f..0.6f,
+                        onValueChange = onTipJitterChanged,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+    )
+}
+
+@Composable
+private fun SettingSliderRow(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("$label: ${"%.2f".format(value)}", style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range,
+        )
+    }
 }
 
 private fun styleChipLabel(style: BrushStyle): String = when (style) {

@@ -56,6 +56,9 @@ data class CanvasUiState(
         Color(0xFFD32F2F), Color(0xFF1976D2), Color(0xFF388E3C),
         Color(0xFFF57F17), Color(0xFF7B1FA2),
     ),
+    val styleProfiles: Map<BrushStyle, BrushProfile> = BrushStyle.entries.associateWith { style ->
+        BrushProfile.preset(style)
+    },
 )
 
 data class SavedProjectItem(
@@ -162,11 +165,12 @@ class CanvasViewModel @Inject constructor(
     fun selectBrushType(brushType: BrushType) {
         _uiState.update { state ->
             val nextStyle = suggestedStyleForType(brushType, state.activeBrush.style)
+            val styleProfile = state.styleProfiles[nextStyle] ?: BrushProfile.preset(nextStyle)
             state.copy(
                 activeBrush = state.activeBrush.copy(
                     type = brushType,
                     style = nextStyle,
-                    profile = BrushProfile.preset(nextStyle),
+                    profile = styleProfile,
                     size = brushType.defaultSize,
                     opacity = brushType.defaultOpacity,
                     hardness = brushType.defaultHardness,
@@ -180,10 +184,12 @@ class CanvasViewModel @Inject constructor(
         // Map BrushDefinition to closest BrushType
         val brushType = mapBrushDefinitionToType(brushDefinition)
 
+        val style = _uiState.value.activeBrush.style
+        val styleProfile = _uiState.value.styleProfiles[style] ?: BrushProfile.preset(style)
         val drawingBrush = Brush(
             type = brushType,
-            style = _uiState.value.activeBrush.style,
-            profile = BrushProfile.preset(_uiState.value.activeBrush.style),
+            style = style,
+            profile = styleProfile,
             size = brushDefinition.defaultSize,
             opacity = brushDefinition.defaultOpacity,
             color = _uiState.value.selectedColor,
@@ -208,12 +214,57 @@ class CanvasViewModel @Inject constructor(
 
     fun selectBrushStyle(style: BrushStyle) {
         _uiState.update { state ->
+            val profile = state.styleProfiles[style] ?: BrushProfile.preset(style)
             state.copy(
                 activeBrush = state.activeBrush.copy(
                     style = style,
-                    profile = BrushProfile.preset(style),
+                    profile = profile,
                 )
             )
+        }
+    }
+
+    fun updateDynamicsPowerCurve(exponent: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(
+                dynamics = profile.dynamics.copy(powerCurveExponent = exponent.coerceIn(0.7f, 3.0f))
+            )
+        }
+    }
+
+    fun updateGrainScale(scale: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(grain = profile.grain.copy(scale = scale.coerceIn(0.2f, 3.0f)))
+        }
+    }
+
+    fun updateGrainStrength(strength: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(grain = profile.grain.copy(strength = strength.coerceIn(0f, 1f), enabled = strength > 0.01f))
+        }
+    }
+
+    fun updateTipSpacing(spacing: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(spacing = spacing.coerceIn(0.05f, 0.7f)))
+        }
+    }
+
+    fun updateTipJitter(jitter: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(jitter = jitter.coerceIn(0f, 0.6f)))
+        }
+    }
+
+    fun updateEdgeSoftness(softness: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(edge = profile.edge.copy(softness = softness.coerceIn(0f, 0.8f)))
+        }
+    }
+
+    fun updateCornerSmoothing(cornerPx: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(edge = profile.edge.copy(cornerSmoothingPx = cornerPx.coerceIn(0f, 28f)))
         }
     }
 
@@ -248,6 +299,18 @@ class CanvasViewModel @Inject constructor(
     ): List<BrushDefinition> {
         val deduped = current.filterNot { it.id == selected.id }
         return listOf(selected) + deduped.take(7)
+    }
+
+    private fun updateActiveBrushProfile(transform: (BrushProfile) -> BrushProfile) {
+        _uiState.update { state ->
+            val style = state.activeBrush.style
+            val currentProfile = state.activeBrush.profile
+            val updatedProfile = transform(currentProfile).copy(style = style)
+            state.copy(
+                activeBrush = state.activeBrush.copy(profile = updatedProfile),
+                styleProfiles = state.styleProfiles + (style to updatedProfile),
+            )
+        }
     }
 
     fun updateBrushSize(size: Float) {
