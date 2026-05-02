@@ -8,3 +8,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Exception: Allow APK files for distribution
+!app/build/outputs/apk/debug/app-debug.apk
