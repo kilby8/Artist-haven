@@ -9,6 +9,8 @@ import androidx.compose.ui.graphics.Color
  */
 data class Brush(
     val type: BrushType = BrushType.PEN,
+    val style: BrushStyle = BrushStyle.STANDARD,
+    val profile: BrushProfile = BrushProfile.preset(BrushStyle.STANDARD),
     val size: Float = 10f,
     val opacity: Float = 1f,
     val color: Color = Color.Black,

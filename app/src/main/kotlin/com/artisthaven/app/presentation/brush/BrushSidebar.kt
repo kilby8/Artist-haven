@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushDefinition
+import com.artisthaven.app.domain.model.BrushStyle
 import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.ui.components.ColorPickerDisc
 import kotlinx.coroutines.delay
@@ -40,7 +41,9 @@ fun BrushSidebar(
     selectedBrushDefinition: BrushDefinition? = null,
     selectedBrushDefinitionId: String? = null,
     savedColors: List<Color> = emptyList(),
+    activeBrushStyle: BrushStyle = BrushStyle.STANDARD,
     onBrushTypeSelected: (BrushType) -> Unit,
+    onBrushStyleSelected: (BrushStyle) -> Unit = {},
     onRecentBrushSelected: (BrushDefinition) -> Unit = {},
     onBrushSizeChanged: (Float) -> Unit,
     onBrushOpacityChanged: (Float) -> Unit,
@@ -101,6 +104,42 @@ fun BrushSidebar(
                 .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
                 .clickable { touched(); showColorPicker = true },
         )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        Text(
+            text = "Style",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 9.sp,
+        )
+
+        BrushStyle.entries.forEach { style ->
+            val isSelected = style == activeBrushStyle
+            TextButton(
+                onClick = { touched(); onBrushStyleSelected(style) },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                modifier = Modifier
+                    .width(64.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        else Color.Transparent,
+                    ),
+            ) {
+                Text(
+                    text = styleChipLabel(style),
+                    fontSize = 8.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
+        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -184,7 +223,7 @@ fun BrushSidebar(
         )
         VerticalSlider(
             value = activeBrush.size,
-            onValueChange = onBrushSizeChanged,
+            onValueChange = { touched(); onBrushSizeChanged(it) },
             valueRange = 1f..100f,
             modifier = Modifier.height(80.dp),
         )
@@ -199,7 +238,7 @@ fun BrushSidebar(
         )
         VerticalSlider(
             value = activeBrush.opacity,
-            onValueChange = onBrushOpacityChanged,
+            onValueChange = { touched(); onBrushOpacityChanged(it) },
             valueRange = 0f..1f,
             modifier = Modifier.height(80.dp),
         )
@@ -213,7 +252,7 @@ fun BrushSidebar(
         )
         VerticalSlider(
             value = activeBrush.hardness,
-            onValueChange = onBrushHardnessChanged,
+            onValueChange = { touched(); onBrushHardnessChanged(it) },
             valueRange = 0f..1f,
             modifier = Modifier.height(80.dp),
         )
@@ -330,3 +369,12 @@ private fun brushTypeIcon(brushType: BrushType): ImageVector = when (brushType) 
     BrushType.CHARCOAL -> Icons.Default.Brush
     BrushType.ERASER -> Icons.Default.AutoFixNormal
 }
+
+private fun styleChipLabel(style: BrushStyle): String = when (style) {
+    BrushStyle.STANDARD -> "Std"
+    BrushStyle.TEXTURED_CHARCOAL -> "Tex"
+    BrushStyle.CALLIGRAPHY -> "Call"
+    BrushStyle.NEON_GLOW -> "Neon"
+    BrushStyle.PATTERN_STAMP -> "Pattern"
+}
+

@@ -12,7 +12,6 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewConfiguration
 import com.artisthaven.app.domain.model.Brush
-import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.StrokePoint
 import com.artisthaven.app.presentation.canvas.shaders.BrushShaderFactory
@@ -82,6 +81,7 @@ class DrawingCanvasView(context: Context) : View(context) {
     private var lastGestureFocusX = 0f
     private var lastGestureFocusY = 0f
     private var isTransformGesture = false
+    private val brushEngine = BrushEngine(context)
 
     private val scaleGestureDetector = ScaleGestureDetector(
         context,
@@ -292,17 +292,15 @@ class DrawingCanvasView(context: Context) : View(context) {
         val points = currentStrokePoints
         if (points.isEmpty()) return
 
-        if (points.size >= 2) {
-            val last = points[points.size - 1]
-            val prev = points[points.size - 2]
-            val paint = createPaint(brush, last.pressure)
-            canvas.drawLine(prev.x, prev.y, last.x, last.y, paint)
-        } else {
-            val point = points.first()
-            val paint = createPaint(brush, point.pressure)
-            paint.style = AndroidPaint.Style.FILL
-            canvas.drawCircle(point.x, point.y, brush.size * point.pressure / 2f, paint)
-        }
+        // Redraw the live preview from stroke samples so all brush dynamics/styles
+        // (texture, velocity mapping, glow, pattern stamps) match committed rendering.
+        clearPreview()
+        brushEngine.renderStroke(
+            canvas = canvas,
+            points = points,
+            brush = brush,
+            isPreview = true,
+        )
 
         invalidate()
     }
@@ -416,42 +414,6 @@ class DrawingCanvasView(context: Context) : View(context) {
 
     private fun screenToCanvasY(screenY: Float): Float = (screenY - viewportPanY) / viewportScale
 
-    private fun createPaint(brush: Brush, pressure: Float): AndroidPaint {
-        val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
-
-        when (brush.type) {
-            BrushType.ERASER -> {
-                paint.xfermode = android.graphics.PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-            }
-            else -> {
-                val argb = brush.color.copy(alpha = brush.opacity * pressure).let {
-                    android.graphics.Color.argb(
-                        (it.alpha * 255).toInt(),
-                        (it.red * 255).toInt(),
-                        (it.green * 255).toInt(),
-                        (it.blue * 255).toInt(),
-                    )
-                }
-                paint.color = argb
-            }
-        }
-
-        val strokeWidth = brush.size * pressure.coerceAtLeast(0.3f)
-        paint.strokeWidth = strokeWidth
-        paint.style = AndroidPaint.Style.STROKE
-        paint.strokeCap = AndroidPaint.Cap.ROUND
-        paint.strokeJoin = AndroidPaint.Join.ROUND
-
-        val blurRadius = strokeWidth * (1f - brush.hardness) * 0.5f
-        if (blurRadius > 0.5f) {
-            paint.maskFilter = android.graphics.BlurMaskFilter(
-                blurRadius,
-                android.graphics.BlurMaskFilter.Blur.NORMAL
-            )
-        }
-
-        return paint
-    }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()

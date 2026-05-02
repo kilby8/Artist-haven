@@ -14,6 +14,8 @@ import com.artisthaven.app.domain.command.DrawingCommand
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushDefinition
 import com.artisthaven.app.domain.model.BrushLibrary
+import com.artisthaven.app.domain.model.BrushProfile
+import com.artisthaven.app.domain.model.BrushStyle
 import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.Layer
@@ -79,6 +81,7 @@ class CanvasViewModel @Inject constructor(
     val uiState: StateFlow<CanvasUiState> = _uiState.asStateFlow()
 
     private val layerBitmaps = mutableMapOf<String, Bitmap>()
+    private val brushEngine = BrushEngine(context)
 
     private var canvasWidth: Int = 0
     private var canvasHeight: Int = 0
@@ -158,9 +161,12 @@ class CanvasViewModel @Inject constructor(
 
     fun selectBrushType(brushType: BrushType) {
         _uiState.update { state ->
+            val nextStyle = suggestedStyleForType(brushType, state.activeBrush.style)
             state.copy(
                 activeBrush = state.activeBrush.copy(
                     type = brushType,
+                    style = nextStyle,
+                    profile = BrushProfile.preset(nextStyle),
                     size = brushType.defaultSize,
                     opacity = brushType.defaultOpacity,
                     hardness = brushType.defaultHardness,
@@ -176,6 +182,8 @@ class CanvasViewModel @Inject constructor(
 
         val drawingBrush = Brush(
             type = brushType,
+            style = _uiState.value.activeBrush.style,
+            profile = BrushProfile.preset(_uiState.value.activeBrush.style),
             size = brushDefinition.defaultSize,
             opacity = brushDefinition.defaultOpacity,
             color = _uiState.value.selectedColor,
@@ -198,6 +206,17 @@ class CanvasViewModel @Inject constructor(
         selectBrushFromLibrary(brushDefinition)
     }
 
+    fun selectBrushStyle(style: BrushStyle) {
+        _uiState.update { state ->
+            state.copy(
+                activeBrush = state.activeBrush.copy(
+                    style = style,
+                    profile = BrushProfile.preset(style),
+                )
+            )
+        }
+    }
+
     fun toggleBrushLibrary() {
         _uiState.update { it.copy(isBrushLibraryOpen = !it.isBrushLibraryOpen) }
     }
@@ -211,6 +230,15 @@ class CanvasViewModel @Inject constructor(
             definition.id.startsWith("tex") -> BrushType.CHARCOAL
             definition.id.startsWith("fx") -> BrushType.MARKER
             else -> BrushType.PEN
+        }
+    }
+
+    private fun suggestedStyleForType(type: BrushType, current: BrushStyle): BrushStyle {
+        return when (type) {
+            BrushType.CHARCOAL -> BrushStyle.TEXTURED_CHARCOAL
+            BrushType.PEN -> if (current == BrushStyle.STANDARD) BrushStyle.CALLIGRAPHY else current
+            BrushType.MARKER -> if (current == BrushStyle.STANDARD) BrushStyle.NEON_GLOW else current
+            else -> current
         }
     }
 
@@ -248,6 +276,7 @@ class CanvasViewModel @Inject constructor(
         val command = StrokeCommand(
             stroke = stroke,
             targetBitmap = bitmap,
+            brushEngine = brushEngine,
         )
         commandHistory.execute(command)
     }
@@ -489,6 +518,7 @@ class CanvasViewModel @Inject constructor(
 private class StrokeCommand(
     private val stroke: DrawingStroke,
     private val targetBitmap: Bitmap,
+    private val brushEngine: BrushEngine,
 ) : DrawingCommand {
 
     private var undoBitmap: Bitmap? = null
@@ -516,77 +546,12 @@ private class StrokeCommand(
     }
 
     private fun renderStroke() {
-        if (stroke.points.size < 2) {
-            stroke.points.firstOrNull()?.let { point ->
-                drawDot(point)
-            }
-            return
-        }
-
         val canvas = android.graphics.Canvas(targetBitmap)
-        val brush = stroke.brushSnapshot
-        val paint = createPaint(brush)
-
-        val path = android.graphics.Path()
-        val points = stroke.points
-
-        path.moveTo(points[0].x, points[0].y)
-
-        for (i in 1 until points.size - 1) {
-            val prev = points[i - 1]
-            val curr = points[i]
-            val next = points[i + 1]
-
-            val cp1x = curr.x - (next.x - prev.x) / 6f
-            val cp1y = curr.y - (next.y - prev.y) / 6f
-            val cp2x = curr.x + (next.x - prev.x) / 6f
-            val cp2y = curr.y + (next.y - prev.y) / 6f
-
-            path.cubicTo(cp1x, cp1y, cp2x, cp2y, curr.x, curr.y)
-        }
-
-        val last = points.last()
-        path.lineTo(last.x, last.y)
-
-        canvas.drawPath(path, paint)
-    }
-
-    private fun drawDot(point: StrokePoint) {
-        val canvas = android.graphics.Canvas(targetBitmap)
-        val brush = stroke.brushSnapshot
-        val paint = createPaint(brush)
-        paint.style = AndroidPaint.Style.FILL
-        val radius = brush.size * point.pressure / 2f
-        canvas.drawCircle(point.x, point.y, radius, paint)
-    }
-
-    private fun createPaint(brush: Brush): AndroidPaint {
-        val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
-
-        when (brush.type) {
-            BrushType.ERASER -> {
-                paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-            }
-            else -> {
-                paint.color = brush.color.toArgb()
-                paint.alpha = (brush.opacity * 255).toInt()
-            }
-        }
-
-        val strokeWidth = brush.size
-        paint.strokeWidth = strokeWidth
-        paint.style = AndroidPaint.Style.STROKE
-        paint.strokeCap = AndroidPaint.Cap.ROUND
-        paint.strokeJoin = AndroidPaint.Join.ROUND
-
-        val blurRadius = strokeWidth * (1f - brush.hardness) * 0.5f
-        if (blurRadius > 0.5f) {
-            paint.maskFilter = android.graphics.BlurMaskFilter(
-                blurRadius,
-                android.graphics.BlurMaskFilter.Blur.NORMAL
-            )
-        }
-
-        return paint
+        brushEngine.renderStroke(
+            canvas = canvas,
+            points = stroke.points,
+            brush = stroke.brushSnapshot,
+            isPreview = false,
+        )
     }
 }
