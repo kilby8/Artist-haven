@@ -249,41 +249,33 @@
             const btn = document.getElementById('downloadBtn');
             const spinner = document.getElementById('spinner');
             const status = document.getElementById('status');
-
+            
             btn.disabled = true;
             spinner.classList.add('active');
-            status.textContent = 'Checking for latest build...';
+            status.textContent = 'Starting download...';
             status.className = 'status loading';
             status.style.display = 'block';
 
             try {
-                const apkUrl = await checkAPKAvailability();
-
-                status.textContent = 'Download starting...';
-                status.className = 'status success';
-
+                // Try to download directly from the repo
+                const directUrl = 'https://github.com/kilby8/Artist-haven/raw/main/app/build/outputs/apk/debug/app-debug.apk';
+                
                 const link = document.createElement('a');
-                link.href = apkUrl;
+                link.href = directUrl;
                 link.download = 'Artist-Haven.apk';
                 link.click();
 
                 setTimeout(() => {
                     status.textContent = '✓ Download started! Check your Downloads folder.';
+                    status.className = 'status success';
                     btn.disabled = false;
                     spinner.classList.remove('active');
                 }, 1000);
             } catch (error) {
-                status.textContent = '⚠ Could not fetch release info. Using fallback URL...';
-                status.className = 'status loading';
-
-                setTimeout(() => {
-                    const link = document.createElement('a');
-                    link.href = FALLBACK_URL;
-                    link.download = 'Artist-Haven.apk';
-                    link.click();
-                    btn.disabled = false;
-                    spinner.classList.remove('active');
-                }, 1500);
+                status.textContent = '⚠ Error starting download';
+                status.className = 'status error';
+                btn.disabled = false;
+                spinner.classList.remove('active');
             }
         }
 
