@@ -1,0 +1,51 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Build APK
+      run: ./gradlew assembleDebug
+
+    - name: Upload APK to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: app/build/outputs/apk/debug/app-debug.apk
+        tag_name: latest
+        name: Artist Haven - Latest Build
+        body: |
+          Latest APK build for Artist Haven drawing application.
+
+          **Download:** [app-debug.apk](https://github.com/kilby8/Artist-haven/releases/download/latest/app-debug.apk)
+
+          To install on BlueStacks:
+          1. Download the APK
+          2. Drag and drop into BlueStacks, or
+          3. Use ADB: `adb install app-debug.apk`
+        draft: false
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
