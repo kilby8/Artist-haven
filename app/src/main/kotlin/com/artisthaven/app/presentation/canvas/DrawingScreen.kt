@@ -1,12 +1,15 @@
 package com.artisthaven.app.presentation.canvas
 
-import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,11 +32,16 @@ fun DrawingScreen(
     viewModel: CanvasViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var canvasView by remember { mutableStateOf<DrawingCanvasView?>(null) }
+    var isRenameDialogVisible by remember { mutableStateOf(false) }
+    var isSaveDialogVisible by remember { mutableStateOf(false) }
+    var isLoadDialogVisible by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         DrawingCanvasArea(
             uiState = uiState,
             viewModel = viewModel,
+            onViewReady = { canvasView = it },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -43,6 +51,12 @@ fun DrawingScreen(
             onRedo = { viewModel.redo() },
             onToggleLayers = { viewModel.toggleLayerDrawer() },
             onToggleBrush = { viewModel.toggleBrushSidebar() },
+            onSave = { isSaveDialogVisible = true },
+            onLoad = { isLoadDialogVisible = true },
+            onEditProjectName = { isRenameDialogVisible = true },
+            onZoomIn = { canvasView?.zoomIn() },
+            onZoomOut = { canvasView?.zoomOut() },
+            onResetZoom = { canvasView?.resetZoom() },
             onExport = { viewModel.exportAsPng() },
             modifier = Modifier
                 .fillMaxWidth()
@@ -59,6 +73,7 @@ fun DrawingScreen(
                 activeBrush = uiState.activeBrush,
                 selectedColor = uiState.selectedColor,
                 recentBrushes = uiState.recentBrushDefinitions,
+                selectedBrushDefinition = uiState.selectedBrushDefinition,
                 selectedBrushDefinitionId = uiState.selectedBrushDefinition?.id,
                 onBrushTypeSelected = { viewModel.selectBrushType(it) },
                 onRecentBrushSelected = { viewModel.selectRecentBrush(it) },
@@ -101,6 +116,38 @@ fun DrawingScreen(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
+
+        ProjectRenameDialog(
+            visible = isRenameDialogVisible,
+            currentName = uiState.project?.name ?: "",
+            onDismiss = { isRenameDialogVisible = false },
+            onConfirm = { newName ->
+                viewModel.renameProject(newName)
+                isRenameDialogVisible = false
+            },
+        )
+
+        SaveProjectDialog(
+            visible = isSaveDialogVisible,
+            currentName = uiState.project?.name ?: "",
+            currentFolder = uiState.project?.folderName ?: "General",
+            onDismiss = { isSaveDialogVisible = false },
+            onConfirm = { name, folder ->
+                viewModel.saveProjectWithOptions(name = name, folderName = folder)
+                isSaveDialogVisible = false
+            },
+        )
+
+        LoadProjectDialog(
+            visible = isLoadDialogVisible,
+            projects = uiState.savedProjects,
+            currentProjectId = uiState.project?.id,
+            onDismiss = { isLoadDialogVisible = false },
+            onProjectSelected = { projectId ->
+                viewModel.loadProject(projectId)
+                isLoadDialogVisible = false
+            },
+        )
     }
 }
 
@@ -108,11 +155,13 @@ fun DrawingScreen(
 private fun DrawingCanvasArea(
     uiState: CanvasUiState,
     viewModel: CanvasViewModel,
+    onViewReady: (DrawingCanvasView) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
         factory = { context ->
             DrawingCanvasView(context).apply {
+                onViewReady(this)
                 getActiveBrush = { uiState.activeBrush }
                 getLayerBitmaps = {
                     uiState.layers
@@ -157,6 +206,12 @@ private fun DrawingToolbar(
     onRedo: () -> Unit,
     onToggleLayers: () -> Unit,
     onToggleBrush: () -> Unit,
+    onSave: () -> Unit,
+    onLoad: () -> Unit,
+    onEditProjectName: () -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onResetZoom: () -> Unit,
     onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -173,11 +228,29 @@ private fun DrawingToolbar(
             }
         },
         actions = {
+            IconButton(onClick = onEditProjectName) {
+                Icon(Icons.Default.Edit, contentDescription = "Rename project")
+            }
+            IconButton(onClick = onSave) {
+                Icon(Icons.Default.Save, contentDescription = "Save project")
+            }
+            IconButton(onClick = onLoad) {
+                Icon(Icons.Default.FolderOpen, contentDescription = "Load project")
+            }
             IconButton(onClick = onUndo, enabled = uiState.canUndo) {
-                Icon(Icons.Default.Undo, contentDescription = "Undo")
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
             }
             IconButton(onClick = onRedo, enabled = uiState.canRedo) {
-                Icon(Icons.Default.Redo, contentDescription = "Redo")
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+            }
+            IconButton(onClick = onZoomOut) {
+                Icon(Icons.Default.ZoomOut, contentDescription = "Zoom out")
+            }
+            IconButton(onClick = onZoomIn) {
+                Icon(Icons.Default.ZoomIn, contentDescription = "Zoom in")
+            }
+            IconButton(onClick = onResetZoom) {
+                Icon(Icons.Default.CenterFocusStrong, contentDescription = "Reset zoom")
             }
             IconButton(onClick = onToggleLayers) {
                 Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
@@ -192,3 +265,147 @@ private fun DrawingToolbar(
         modifier = modifier,
     )
 }
+
+@Composable
+private fun SaveProjectDialog(
+    visible: Boolean,
+    currentName: String,
+    currentFolder: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit,
+) {
+    if (!visible) return
+
+    var pendingName by remember(currentName) { mutableStateOf(currentName) }
+    var pendingFolder by remember(currentFolder) { mutableStateOf(currentFolder) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Save Project") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = pendingName,
+                    onValueChange = { pendingName = it },
+                    singleLine = true,
+                    label = { Text("Project name") },
+                )
+                OutlinedTextField(
+                    value = pendingFolder,
+                    onValueChange = { pendingFolder = it },
+                    singleLine = true,
+                    label = { Text("Folder") },
+                    supportingText = { Text("Use folders to organize multiple saves of the same project") },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(pendingName, pendingFolder) },
+                enabled = pendingName.isNotBlank(),
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
+}
+
+@Composable
+private fun LoadProjectDialog(
+    visible: Boolean,
+    projects: List<SavedProjectItem>,
+    currentProjectId: String?,
+    onDismiss: () -> Unit,
+    onProjectSelected: (String) -> Unit,
+) {
+    if (!visible) return
+
+    val groupedProjects = remember(projects) {
+        projects
+            .sortedByDescending { it.modifiedAt }
+            .groupBy { it.folderName.ifBlank { "General" } }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Load Project") },
+        text = {
+            if (projects.isEmpty()) {
+                Text("No saved projects found.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    groupedProjects.forEach { (folderName, folderProjects) ->
+                        item {
+                            Text(
+                                text = folderName,
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                        }
+                        items(folderProjects, key = { it.id }) { project ->
+                            TextButton(
+                                onClick = { onProjectSelected(project.id) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                val isCurrent = project.id == currentProjectId
+                                val label = if (isCurrent) "${project.name} (current)" else project.name
+                                Text(label, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ProjectRenameDialog(
+    visible: Boolean,
+    currentName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    if (!visible) return
+
+    var pendingName by remember(currentName) { mutableStateOf(currentName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename Project") },
+        text = {
+            OutlinedTextField(
+                value = pendingName,
+                onValueChange = { pendingName = it },
+                singleLine = true,
+                label = { Text("Project name") },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(pendingName) },
+                enabled = pendingName.isNotBlank(),
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
+}
+

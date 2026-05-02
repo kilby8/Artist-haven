@@ -26,6 +26,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
@@ -47,6 +48,14 @@ data class CanvasUiState(
     val recentBrushDefinitions: List<BrushDefinition> = emptyList(),
     val isExporting: Boolean = false,
     val exportedFilePath: String? = null,
+    val savedProjects: List<SavedProjectItem> = emptyList(),
+)
+
+data class SavedProjectItem(
+    val id: String,
+    val name: String,
+    val folderName: String,
+    val modifiedAt: Long,
 )
 
 /**
@@ -70,6 +79,22 @@ class CanvasViewModel @Inject constructor(
     private var canvasHeight: Int = 0
 
     init {
+        viewModelScope.launch {
+            projectRepository.observeProjects().collect { projects ->
+                _uiState.update { state ->
+                    state.copy(
+                        savedProjects = projects.map { project ->
+                            SavedProjectItem(
+                                id = project.id,
+                                name = project.name,
+                                folderName = project.folderName,
+                                modifiedAt = project.modifiedAt,
+                            )
+                        }
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             commandHistory.canUndo.collect { canUndo ->
                 _uiState.update { it.copy(canUndo = canUndo) }
@@ -305,6 +330,79 @@ class CanvasViewModel @Inject constructor(
         _uiState.update { it.copy(isBrushSidebarOpen = !it.isBrushSidebarOpen) }
     }
 
+    fun renameProject(newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+
+        val project = _uiState.value.project ?: return
+        val updatedProject = project.copy(
+            name = trimmed,
+            modifiedAt = System.currentTimeMillis(),
+        )
+        _uiState.update { it.copy(project = updatedProject) }
+
+        viewModelScope.launch {
+            projectRepository.saveProject(updatedProject)
+        }
+    }
+
+    fun saveProjectNow() {
+        saveCurrentProject()
+    }
+
+    fun saveProjectWithOptions(name: String, folderName: String) {
+        val trimmedName = name.trim()
+        if (trimmedName.isEmpty()) return
+
+        val project = _uiState.value.project ?: return
+        val normalizedFolder = normalizeFolderName(folderName)
+        val updatedProject = project.copy(
+            name = trimmedName,
+            folderName = normalizedFolder,
+            modifiedAt = System.currentTimeMillis(),
+            layers = _uiState.value.layers,
+        )
+        _uiState.update { it.copy(project = updatedProject) }
+
+        viewModelScope.launch {
+            projectRepository.saveProject(updatedProject)
+        }
+    }
+
+    fun loadProject(projectId: String) {
+        viewModelScope.launch {
+            val loadedProject = projectRepository.getProject(projectId) ?: return@launch
+            val loadedLayers = projectRepository.getLayers(projectId)
+                .sortedBy { it.order }
+                .ifEmpty {
+                    listOf(
+                        Layer(
+                            id = UUID.randomUUID().toString(),
+                            name = "Layer 1",
+                            order = 0,
+                        )
+                    )
+                }
+
+            commandHistory.clear()
+            layerBitmaps.clear()
+
+            if (canvasWidth > 0 && canvasHeight > 0) {
+                loadedLayers.forEach { layer ->
+                    layerBitmaps[layer.id] = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    project = loadedProject.copy(layers = loadedLayers),
+                    layers = loadedLayers,
+                    activeLayerIndex = 0,
+                )
+            }
+        }
+    }
+
     fun exportAsPng() {
         val projectId = _uiState.value.project?.id ?: return
         _uiState.update { it.copy(isExporting = true) }
@@ -355,6 +453,11 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch {
             projectRepository.saveProject(updatedProject)
         }
+    }
+
+    private fun normalizeFolderName(folderName: String): String {
+        val trimmed = folderName.trim()
+        return if (trimmed.isEmpty()) "General" else trimmed
     }
 
     override fun onCleared() {

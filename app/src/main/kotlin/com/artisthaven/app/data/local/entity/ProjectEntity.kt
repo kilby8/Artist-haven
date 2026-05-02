@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class ProjectEntity(
     @PrimaryKey val id: String,
     val name: String,
+    val folderName: String = "General",
     val widthPx: Int,
     val heightPx: Int,
     val createdAt: Long,

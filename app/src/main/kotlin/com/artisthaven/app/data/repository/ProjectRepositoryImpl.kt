@@ -75,6 +75,7 @@ class ProjectRepositoryImpl @Inject constructor(
     private fun ProjectEntity.toDomain(): Project = Project(
         id = id,
         name = name,
+        folderName = folderName,
         widthPx = widthPx,
         heightPx = heightPx,
         createdAt = createdAt,
@@ -85,6 +86,7 @@ class ProjectRepositoryImpl @Inject constructor(
     private fun Project.toEntity(): ProjectEntity = ProjectEntity(
         id = id,
         name = name,
+        folderName = folderName,
         widthPx = widthPx,
         heightPx = heightPx,
         createdAt = createdAt,

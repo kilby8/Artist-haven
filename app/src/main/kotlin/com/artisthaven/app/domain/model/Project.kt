@@ -7,6 +7,7 @@ package com.artisthaven.app.domain.model
 data class Project(
     val id: String,
     val name: String,
+    val folderName: String = "General",
     val widthPx: Int,
     val heightPx: Int,
     val createdAt: Long,

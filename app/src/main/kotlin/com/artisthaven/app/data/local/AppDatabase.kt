@@ -9,7 +9,7 @@ import com.artisthaven.app.data.local.entity.ProjectEntity
 
 @Database(
     entities = [ProjectEntity::class, LayerEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
