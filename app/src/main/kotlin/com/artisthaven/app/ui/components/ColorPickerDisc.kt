@@ -116,7 +116,10 @@ private val PRESET_PALETTES: List<Pair<String, List<Color>>> = listOf(
 fun ColorPickerDisc(
     visible: Boolean,
     initialColor: Color,
+    savedColors: List<Color> = emptyList(),
     onColorSelected: (Color) -> Unit,
+    onSaveColor: (Color) -> Unit = {},
+    onRemoveColor: (Color) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
@@ -246,6 +249,67 @@ fun ColorPickerDisc(
                         RgbChip("G", (currentColor.green * 255).toInt(), Color(0.2f, 0.8f, 0.2f, 0.2f))
                         RgbChip("B", (currentColor.blue * 255).toInt(), Color(0.2f, 0.5f, 1f, 0.2f))
                         RgbChip("H°", hue.toInt(), Color(1f, 0.8f, 0.2f, 0.2f))
+                    }
+
+                    // ── Saved colors ──────────────────────────────────────
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Saved Colors",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val alreadySaved = savedColors.any { it == currentColor }
+                        TextButton(
+                            onClick = {
+                                if (alreadySaved) onRemoveColor(currentColor) else onSaveColor(currentColor)
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = if (alreadySaved) "− Remove" else "+ Save current",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (alreadySaved) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    if (savedColors.isEmpty()) {
+                        Text(
+                            text = "No saved colors yet \u2014 tap '+ Save current' to add one.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    } else {
+                        savedColors.chunked(8).forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                row.forEach { sc ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(sc)
+                                            .border(
+                                                width = if (sc == currentColor) 2.5.dp else 1.dp,
+                                                color = if (sc == currentColor) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                                shape = CircleShape,
+                                            )
+                                            .clickable {
+                                                val hsv = sc.toHsvArray()
+                                                hue = hsv[0]; sat = hsv[1]; value = hsv[2]; alpha = sc.alpha
+                                            },
+                                    )
+                                }
+                                repeat(8 - row.size) { Spacer(Modifier.size(32.dp)) }
+                            }
+                        }
                     }
 
                 } else {

@@ -76,12 +76,15 @@ fun DrawingScreen(
                 recentBrushes = uiState.recentBrushDefinitions,
                 selectedBrushDefinition = uiState.selectedBrushDefinition,
                 selectedBrushDefinitionId = uiState.selectedBrushDefinition?.id,
+                savedColors = uiState.savedColors,
                 onBrushTypeSelected = { viewModel.selectBrushType(it) },
                 onRecentBrushSelected = { viewModel.selectRecentBrush(it) },
                 onBrushSizeChanged = { viewModel.updateBrushSize(it) },
                 onBrushOpacityChanged = { viewModel.updateBrushOpacity(it) },
                 onBrushHardnessChanged = { viewModel.updateBrushHardness(it) },
                 onColorSelected = { viewModel.updateColor(it) },
+                onSaveColor = { viewModel.saveColor(it) },
+                onRemoveColor = { viewModel.removeColor(it) },
                 onOpenBrushLibrary = { viewModel.toggleBrushLibrary() },
             )
         }

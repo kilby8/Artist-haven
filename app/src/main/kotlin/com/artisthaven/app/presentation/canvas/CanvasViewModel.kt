@@ -49,6 +49,11 @@ data class CanvasUiState(
     val isExporting: Boolean = false,
     val exportedFilePath: String? = null,
     val savedProjects: List<SavedProjectItem> = emptyList(),
+    val savedColors: List<Color> = listOf(
+        Color.Black, Color.White,
+        Color(0xFFD32F2F), Color(0xFF1976D2), Color(0xFF388E3C),
+        Color(0xFFF57F17), Color(0xFF7B1FA2),
+    ),
 )
 
 data class SavedProjectItem(
@@ -348,6 +353,16 @@ class CanvasViewModel @Inject constructor(
 
     fun saveProjectNow() {
         saveCurrentProject()
+    }
+
+    fun saveColor(color: Color) {
+        val current = _uiState.value.savedColors
+        if (current.any { it == color }) return
+        _uiState.update { it.copy(savedColors = (listOf(color) + current).take(32)) }
+    }
+
+    fun removeColor(color: Color) {
+        _uiState.update { it.copy(savedColors = it.savedColors.filter { c -> c != color }) }
     }
 
     fun saveProjectWithOptions(name: String, folderName: String) {

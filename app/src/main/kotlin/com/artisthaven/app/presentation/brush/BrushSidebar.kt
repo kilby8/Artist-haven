@@ -38,12 +38,15 @@ fun BrushSidebar(
     recentBrushes: List<BrushDefinition> = emptyList(),
     selectedBrushDefinition: BrushDefinition? = null,
     selectedBrushDefinitionId: String? = null,
+    savedColors: List<Color> = emptyList(),
     onBrushTypeSelected: (BrushType) -> Unit,
     onRecentBrushSelected: (BrushDefinition) -> Unit = {},
     onBrushSizeChanged: (Float) -> Unit,
     onBrushOpacityChanged: (Float) -> Unit,
     onBrushHardnessChanged: (Float) -> Unit,
     onColorSelected: (Color) -> Unit,
+    onSaveColor: (Color) -> Unit = {},
+    onRemoveColor: (Color) -> Unit = {},
     onOpenBrushLibrary: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -194,11 +197,14 @@ fun BrushSidebar(
         ColorPickerDisc(
             visible = showColorPicker,
             initialColor = selectedColor,
+            savedColors = savedColors,
             onColorSelected = { color ->
                 onColorSelected(color)
                 showColorPicker = false
             },
-            onDismiss = { showColorPicker = false }
+            onSaveColor = onSaveColor,
+            onRemoveColor = onRemoveColor,
+            onDismiss = { showColorPicker = false },
         )
     }
 }
