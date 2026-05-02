@@ -42,7 +42,7 @@ data class CanvasUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val isLayerDrawerOpen: Boolean = false,
-    val isBrushSidebarOpen: Boolean = true,
+    val isBrushSidebarOpen: Boolean = false,
     val isBrushLibraryOpen: Boolean = false,
     val selectedBrushDefinition: BrushDefinition? = null,
     val recentBrushDefinitions: List<BrushDefinition> = emptyList(),

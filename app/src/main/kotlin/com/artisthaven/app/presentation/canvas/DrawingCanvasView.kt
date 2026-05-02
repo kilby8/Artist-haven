@@ -17,8 +17,7 @@ import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.StrokePoint
 import com.artisthaven.app.presentation.canvas.shaders.BrushShaderFactory
 import java.util.UUID
-import kotlin.math.max
-import kotlin.math.min
+
 
 /**
  * Custom Android View for low-latency drawing input.
@@ -153,6 +152,21 @@ class DrawingCanvasView(context: Context) : View(context) {
         canvas.restore()
     }
 
+    fun zoomIn(step: Float = 1.2f) {
+        applyZoom(step, width / 2f, height / 2f)
+    }
+
+    fun zoomOut(step: Float = 1.2f) {
+        applyZoom(1f / step, width / 2f, height / 2f)
+    }
+
+    fun resetZoom() {
+        viewportScale = 1f
+        viewportPanX = 0f
+        viewportPanY = 0f
+        invalidate()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isPalmContact(event)) return false
 
@@ -174,7 +188,7 @@ class DrawingCanvasView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                startStroke(event, brush)
+                startStroke(event)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -220,7 +234,7 @@ class DrawingCanvasView(context: Context) : View(context) {
         } ?: false
     }
 
-    private fun startStroke(event: MotionEvent, brush: Brush) {
+    private fun startStroke(event: MotionEvent) {
         if (isTransformGesture) return
 
         // Record start position for touch-slop guard
@@ -349,15 +363,37 @@ class DrawingCanvasView(context: Context) : View(context) {
         }
     }
 
+    private fun applyZoom(scaleFactor: Float, focusX: Float, focusY: Float) {
+        if (width == 0 || height == 0) return
+
+        val oldScale = viewportScale
+        val targetScale = (viewportScale * scaleFactor).coerceIn(minViewportScale, maxViewportScale)
+        if (targetScale == oldScale) return
+
+        val scaleRatio = targetScale / oldScale
+        viewportPanX = focusX - (focusX - viewportPanX) * scaleRatio
+        viewportPanY = focusY - (focusY - viewportPanY) * scaleRatio
+        viewportScale = targetScale
+        constrainViewportPan()
+        invalidate()
+    }
+
     private fun constrainViewportPan() {
+        if (width == 0 || height == 0) return
         val scaledWidth = width * viewportScale
         val scaledHeight = height * viewportScale
-        val minPanX = min(0f, width - scaledWidth)
-        val maxPanX = max(0f, width - scaledWidth)
-        val minPanY = min(0f, height - scaledHeight)
-        val maxPanY = max(0f, height - scaledHeight)
-        viewportPanX = viewportPanX.coerceIn(minPanX, maxPanX)
-        viewportPanY = viewportPanY.coerceIn(minPanY, maxPanY)
+        // Zoomed in: scaledWidth > width → allow scrolling → pan range [width-scaledWidth .. 0]
+        // Zoomed out: scaledWidth <= width → no scroll needed → clamp to 0
+        if (scaledWidth > width) {
+            viewportPanX = viewportPanX.coerceIn(width - scaledWidth, 0f)
+        } else {
+            viewportPanX = 0f
+        }
+        if (scaledHeight > height) {
+            viewportPanY = viewportPanY.coerceIn(height - scaledHeight, 0f)
+        } else {
+            viewportPanY = 0f
+        }
     }
 
     private fun averagePointerX(event: MotionEvent): Float {

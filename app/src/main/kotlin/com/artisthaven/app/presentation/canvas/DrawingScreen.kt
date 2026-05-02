@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.artisthaven.app.presentation.brush.BrushSidebar
@@ -215,52 +216,84 @@ private fun DrawingToolbar(
     onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showOverflow by remember { mutableStateOf(false) }
+
     TopAppBar(
         title = {
             Text(
                 text = uiState.project?.name ?: "Artist Haven",
                 style = MaterialTheme.typography.titleMedium,
+                fontSize = 14.sp,
             )
         },
         navigationIcon = {
+            // Brush icon — opens brush sidebar
             IconButton(onClick = onToggleBrush) {
-                Icon(Icons.Default.Brush, contentDescription = "Toggle brushes")
+                Icon(Icons.Default.Brush, contentDescription = "Brushes")
             }
         },
         actions = {
-            IconButton(onClick = onEditProjectName) {
-                Icon(Icons.Default.Edit, contentDescription = "Rename project")
-            }
-            IconButton(onClick = onSave) {
-                Icon(Icons.Default.Save, contentDescription = "Save project")
-            }
-            IconButton(onClick = onLoad) {
-                Icon(Icons.Default.FolderOpen, contentDescription = "Load project")
-            }
+            // Primary actions always visible
             IconButton(onClick = onUndo, enabled = uiState.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
             }
             IconButton(onClick = onRedo, enabled = uiState.canRedo) {
                 Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
             }
-            IconButton(onClick = onZoomOut) {
-                Icon(Icons.Default.ZoomOut, contentDescription = "Zoom out")
-            }
-            IconButton(onClick = onZoomIn) {
-                Icon(Icons.Default.ZoomIn, contentDescription = "Zoom in")
-            }
-            IconButton(onClick = onResetZoom) {
-                Icon(Icons.Default.CenterFocusStrong, contentDescription = "Reset zoom")
-            }
             IconButton(onClick = onToggleLayers) {
-                Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
+                Icon(Icons.Default.Layers, contentDescription = "Layers")
             }
-            IconButton(onClick = onExport) {
-                Icon(Icons.Default.FileDownload, contentDescription = "Export PNG")
+            // Overflow menu for secondary actions
+            Box {
+                IconButton(onClick = { showOverflow = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                }
+                DropdownMenu(
+                    expanded = showOverflow,
+                    onDismissRequest = { showOverflow = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Rename project") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = { showOverflow = false; onEditProjectName() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save") },
+                        leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                        onClick = { showOverflow = false; onSave() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Load project") },
+                        leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
+                        onClick = { showOverflow = false; onLoad() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Zoom in") },
+                        leadingIcon = { Icon(Icons.Default.ZoomIn, contentDescription = null) },
+                        onClick = { showOverflow = false; onZoomIn() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Zoom out") },
+                        leadingIcon = { Icon(Icons.Default.ZoomOut, contentDescription = null) },
+                        onClick = { showOverflow = false; onZoomOut() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Reset zoom") },
+                        leadingIcon = { Icon(Icons.Default.CenterFocusStrong, contentDescription = null) },
+                        onClick = { showOverflow = false; onResetZoom() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Export PNG") },
+                        leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                        onClick = { showOverflow = false; onExport() },
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
         ),
         modifier = modifier,
     )

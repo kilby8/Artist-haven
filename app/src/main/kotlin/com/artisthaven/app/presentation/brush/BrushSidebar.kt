@@ -4,10 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -36,6 +36,7 @@ fun BrushSidebar(
     activeBrush: Brush,
     selectedColor: Color,
     recentBrushes: List<BrushDefinition> = emptyList(),
+    selectedBrushDefinition: BrushDefinition? = null,
     selectedBrushDefinitionId: String? = null,
     onBrushTypeSelected: (BrushType) -> Unit,
     onRecentBrushSelected: (BrushDefinition) -> Unit = {},
@@ -47,6 +48,7 @@ fun BrushSidebar(
     modifier: Modifier = Modifier,
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = modifier
@@ -56,7 +58,8 @@ fun BrushSidebar(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp),
             )
-            .padding(vertical = 8.dp),
+            .padding(vertical = 8.dp)
+            .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -85,6 +88,28 @@ fun BrushSidebar(
                 contentDescription = "Open Brush Library",
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        Text(
+            text = selectedBrushDefinition?.displayName ?: activeBrush.type.displayName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 10.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
+        if (selectedBrushDefinition != null) {
+            Text(
+                text = "Library",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 9.sp,
+                textAlign = TextAlign.Center,
             )
         }
 
@@ -146,6 +171,20 @@ fun BrushSidebar(
         VerticalSlider(
             value = activeBrush.opacity,
             onValueChange = onBrushOpacityChanged,
+            valueRange = 0f..1f,
+            modifier = Modifier.height(80.dp),
+        )
+
+        Text(
+            text = "Hard",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 9.sp,
+            textAlign = TextAlign.Center,
+        )
+        VerticalSlider(
+            value = activeBrush.hardness,
+            onValueChange = onBrushHardnessChanged,
             valueRange = 0f..1f,
             modifier = Modifier.height(80.dp),
         )
