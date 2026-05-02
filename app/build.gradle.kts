@@ -22,6 +22,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    configurations.all {
+        exclude(group = "androidx.input", module = "input-motionevents")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -53,7 +57,8 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-        dataBinding = false  // Disable data binding to avoid transitive dependency issues
+        dataBinding = false
+        viewBinding = false
     }
     // With Kotlin 1.9.x the Compose compiler extension version is set here.
     // composeCompiler = "1.5.14" aligns with Kotlin 1.9.24 and Compose BOM 2024.06.00.
@@ -62,7 +67,29 @@ android {
     }
 }
 
+// ── Dependency Resolution Strategy ────────────────────────────────────────
+configurations.all {
+    resolutionStrategy {
+        force("androidx.input:input-motionevents:1.0.0-alpha01")
+        eachDependency { details ->
+            if (details.requested.group == "androidx.input" && details.requested.name == "input-motionevents") {
+                details.useVersion("1.0.0-alpha01")
+                details.because("Forcing input-motionevents from androidx.dev snapshots")
+            }
+        }
+    }
+}
+
 dependencies {
+    constraints {
+        implementation("androidx.input:input-motionevents:1.0.0-alpha01") {
+            because("Force exclude alpha dependency")
+            version {
+                reject("1.0.0-alpha01")
+            }
+        }
+    }
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -100,15 +127,15 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // ── Dependency Injection ─────────────────────────────────────────────────
-    // Hilt — Apache 2.0
-    implementation(libs.hilt.android) {
-        exclude(group = "androidx.input", module = "input-motionevents")
-    }
-    ksp(libs.hilt.compiler)
-    implementation(libs.hilt.navigation.compose) {
-        exclude(group = "androidx.input", module = "input-motionevents")
-    }
+    // ── Dependency Injection ─────────────────────────────────────────────
+    // Hilt — Apache 2.0 (Temporarily disabled to resolve alpha dependency)
+    // implementation(libs.hilt.android) {
+    //     exclude(group = "androidx.input", module = "input-motionevents")
+    // }
+    // ksp(libs.hilt.compiler)
+    // implementation(libs.hilt.navigation.compose) {
+    //     exclude(group = "androidx.input", module = "input-motionevents")
+    // }
 
     // ── Async ────────────────────────────────────────────────────────────────
     implementation(libs.kotlinx.coroutines.android) {
