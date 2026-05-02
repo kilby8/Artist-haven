@@ -1,0 +1,299 @@
+package com.artisthaven.app.presentation.canvas
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.ComposeShader
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.PorterDuffXfermode
+import android.graphics.RenderNode
+import android.graphics.Shader
+import android.os.Build
+import androidx.compose.ui.graphics.toArgb
+import com.artisthaven.app.domain.model.BlendBehavior
+import com.artisthaven.app.domain.model.Brush
+import com.artisthaven.app.domain.model.StrokePoint
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+
+/**
+ * God-tier high-frequency stamp brush.
+ *
+ * Features:
+ * - Catmull-Rom spline interpolation for smooth curves
+ * - Stamp loop (bristle bitmap at 2% brush-size spacing)
+ * - Velocity-based thinning (width/alpha dry-out)
+ * - Dual texture system: bristle-tip + canvas grain compose shader
+ * - Hardware render path via RenderNode when available
+ * - Wet blending via DARKEN / SRC_ATOP / MULTIPLY / etc.
+ */
+class MasterPaintBrush(
+    private val context: Context,
+) {
+    private val bristleBitmap: Bitmap by lazy { createBristleTipBitmap(80) }
+    private val paperBitmap: Bitmap by lazy { createColdPressPaperBitmap(128) }
+
+    private val tipShaderMatrix = Matrix()
+    private val grainShaderMatrix = Matrix()
+
+    fun renderStroke(
+        canvas: Canvas,
+        points: List<StrokePoint>,
+        brush: Brush,
+    ) {
+        if (points.isEmpty()) return
+
+        val samples = points.map { MasterSample(it.x, it.y, it.pressure.coerceIn(0f, 1f), it.timestamp) }
+        val spline = catmullRomSpline(samples)
+        if (spline.size < 2) {
+            drawSingleStamp(canvas, samples.first(), brush)
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && canvas.isHardwareAccelerated) {
+            val node = RenderNode("MasterPaintBrush").apply {
+                setPosition(0, 0, max(1, canvas.width), max(1, canvas.height))
+            }
+            val rc = node.beginRecording(max(1, canvas.width), max(1, canvas.height))
+            drawStampLoop(rc, spline, brush)
+            node.endRecording()
+            canvas.drawRenderNode(node)
+        } else {
+            drawStampLoop(canvas, spline, brush)
+        }
+    }
+
+    private fun drawStampLoop(canvas: Canvas, spline: List<MasterSample>, brush: Brush) {
+        val spacingPx = max(0.8f, brush.size * 0.02f) // every 2% of brush size
+        val baseBlend = toPorterDuffMode(brush.profile.blend)
+
+        val tipTile = if (brush.profile.grain.enabled) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP
+        val tipShader = BitmapShader(bristleBitmap, tipTile, tipTile)
+        val grainShader = BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        val dualShader = ComposeShader(tipShader, grainShader, PorterDuff.Mode.MULTIPLY)
+
+        val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            isFilterBitmap = true
+            xfermode = PorterDuffXfermode(baseBlend)
+            colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+            shader = dualShader
+        }
+
+        var carry = 0f
+        for (i in 1 until spline.size) {
+            val a = spline[i - 1]
+            val b = spline[i]
+            val segLen = hypot(b.x - a.x, b.y - a.y)
+            if (segLen <= 0.01f) continue
+
+            val dt = max(1f, (b.t - a.t).toFloat())
+            val velocity = segLen / dt
+            val dynamics = dynamics(brush, pressure = b.pressure, velocity = velocity)
+
+            // Wet/soft edges
+            stampPaint.maskFilter = if (brush.profile.edge.softness > 0.01f) {
+                BlurMaskFilter(dynamics.width * brush.profile.edge.softness, BlurMaskFilter.Blur.NORMAL)
+            } else {
+                null
+            }
+
+            var consumed = carry
+            while (consumed + spacingPx <= segLen) {
+                consumed += spacingPx
+                val t = (consumed / segLen).coerceIn(0f, 1f)
+                val x = lerp(a.x, b.x, t)
+                val y = lerp(a.y, b.y, t)
+                val tangentX = b.x - a.x
+                val tangentY = b.y - a.y
+                val angleDeg = Math.toDegrees(kotlin.math.atan2(tangentY.toDouble(), tangentX.toDouble())).toFloat()
+
+                drawStampAt(
+                    canvas = canvas,
+                    paint = stampPaint,
+                    tipShader = tipShader,
+                    grainShader = grainShader,
+                    brush = brush,
+                    x = x,
+                    y = y,
+                    width = dynamics.width,
+                    alpha = dynamics.alpha,
+                    angleDeg = angleDeg,
+                )
+            }
+            carry = max(0f, consumed - segLen)
+        }
+    }
+
+    private fun drawSingleStamp(canvas: Canvas, sample: MasterSample, brush: Brush) {
+        val tipShader = BitmapShader(bristleBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        val grainShader = BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = ComposeShader(tipShader, grainShader, PorterDuff.Mode.MULTIPLY)
+            xfermode = PorterDuffXfermode(toPorterDuffMode(brush.profile.blend))
+            colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+        }
+        val dyn = dynamics(brush, sample.pressure, velocity = 0f)
+        drawStampAt(canvas, paint, tipShader, grainShader, brush, sample.x, sample.y, dyn.width, dyn.alpha, 0f)
+    }
+
+    private fun drawStampAt(
+        canvas: Canvas,
+        paint: Paint,
+        tipShader: BitmapShader,
+        grainShader: BitmapShader,
+        brush: Brush,
+        x: Float,
+        y: Float,
+        width: Float,
+        alpha: Int,
+        angleDeg: Float,
+    ) {
+        paint.alpha = alpha
+
+        val tipScale = max(0.08f, width / bristleBitmap.width)
+        tipShaderMatrix.reset()
+        tipShaderMatrix.postScale(tipScale, tipScale)
+        tipShaderMatrix.postRotate(angleDeg, bristleBitmap.width * tipScale * 0.5f, bristleBitmap.height * tipScale * 0.5f)
+        tipShaderMatrix.postTranslate(x - bristleBitmap.width * tipScale * 0.5f, y - bristleBitmap.height * tipScale * 0.5f)
+        tipShader.setLocalMatrix(tipShaderMatrix)
+
+        val grainScale = brush.profile.grain.scale.coerceIn(0.2f, 4f)
+        grainShaderMatrix.reset()
+        grainShaderMatrix.postScale(grainScale, grainScale)
+        grainShader.setLocalMatrix(grainShaderMatrix)
+
+        val r = max(0.35f, width * 0.5f)
+        canvas.drawCircle(x, y, r, paint)
+    }
+
+    private fun dynamics(brush: Brush, pressure: Float, velocity: Float): DynamicsResult {
+        val cfg = brush.profile.dynamics
+        val p = pressure.coerceIn(0f, 1f)
+        val pCurve = p.pow(cfg.powerCurveExponent)
+        val vNorm = (velocity / cfg.velocityNormalization).coerceIn(0f, 1f)
+        val vCurve = (1f - vNorm).pow(cfg.powerCurveExponent)
+
+        val widthT = (cfg.pressureToWidth * pCurve + cfg.velocityToWidth * vCurve).coerceIn(0f, 1f)
+        val alphaT = (cfg.pressureToAlpha * pCurve + cfg.velocityToAlpha * vCurve).coerceIn(0f, 1f)
+
+        // Thinning / running dry at high velocity.
+        val dryDown = (1f - min(1f, velocity * 0.9f)).coerceIn(0.2f, 1f)
+
+        val widthMul = lerp(cfg.minWidthMultiplier, cfg.maxWidthMultiplier, widthT) * dryDown
+        val alphaMul = lerp(cfg.minAlphaMultiplier, cfg.maxAlphaMultiplier, alphaT) * dryDown
+
+        return DynamicsResult(
+            width = max(0.5f, brush.size * widthMul),
+            alpha = (brush.opacity * alphaMul * 255f).toInt().coerceIn(20, 255),
+        )
+    }
+
+    private fun catmullRomSpline(points: List<MasterSample>, stepsPerSegment: Int = 8): List<MasterSample> {
+        if (points.size < 2) return points
+        val out = ArrayList<MasterSample>(points.size * stepsPerSegment)
+
+        for (i in points.indices) {
+            val p0 = points[max(0, i - 1)]
+            val p1 = points[i]
+            val p2 = points[min(points.lastIndex, i + 1)]
+            val p3 = points[min(points.lastIndex, i + 2)]
+
+            for (s in 0 until stepsPerSegment) {
+                val t = s.toFloat() / stepsPerSegment
+                val tt = t * t
+                val ttt = tt * t
+
+                val x = 0.5f * (
+                    2f * p1.x +
+                        (-p0.x + p2.x) * t +
+                        (2f * p0.x - 5f * p1.x + 4f * p2.x - p3.x) * tt +
+                        (-p0.x + 3f * p1.x - 3f * p2.x + p3.x) * ttt
+                    )
+
+                val y = 0.5f * (
+                    2f * p1.y +
+                        (-p0.y + p2.y) * t +
+                        (2f * p0.y - 5f * p1.y + 4f * p2.y - p3.y) * tt +
+                        (-p0.y + 3f * p1.y - 3f * p2.y + p3.y) * ttt
+                    )
+
+                out += MasterSample(
+                    x = x,
+                    y = y,
+                    pressure = lerp(p1.pressure, p2.pressure, t),
+                    t = lerp(p1.t.toFloat(), p2.t.toFloat(), t).toLong(),
+                )
+            }
+        }
+
+        out += points.last()
+        return out
+    }
+
+    private fun toPorterDuffMode(behavior: BlendBehavior): PorterDuff.Mode = when (behavior) {
+        BlendBehavior.MULTIPLY -> PorterDuff.Mode.MULTIPLY
+        BlendBehavior.DARKEN -> PorterDuff.Mode.DARKEN
+        BlendBehavior.SRC_ATOP -> PorterDuff.Mode.SRC_ATOP
+        BlendBehavior.CLEAR -> PorterDuff.Mode.CLEAR
+        BlendBehavior.NORMAL -> PorterDuff.Mode.SRC_OVER
+    }
+
+    private fun createBristleTipBitmap(size: Int): Bitmap {
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = android.graphics.Color.WHITE
+        }
+
+        // Build clustered bristles in one tip bitmap.
+        val center = size * 0.5f
+        for (i in 0 until 72) {
+            val angle = (i * 137.5f) % 360f
+            val radius = (size * 0.12f) + (i % 7) * (size * 0.045f)
+            val x = center + (kotlin.math.cos(Math.toRadians(angle.toDouble())) * radius).toFloat()
+            val y = center + (kotlin.math.sin(Math.toRadians(angle.toDouble())) * radius).toFloat()
+            val r = (size * 0.018f) + (i % 3) * (size * 0.008f)
+            p.alpha = 95 + (i * 11 % 120)
+            c.drawCircle(x, y, r, p)
+        }
+        return bmp
+    }
+
+    private fun createColdPressPaperBitmap(size: Int): Bitmap {
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val random = kotlin.random.Random(4242)
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                val base = 180 + random.nextInt(56)
+                val warm = base + random.nextInt(14)
+                val argb = android.graphics.Color.argb(255, warm.coerceAtMost(255), base, (base - 8).coerceAtLeast(0))
+                bmp.setPixel(x, y, argb)
+            }
+        }
+        return bmp
+    }
+
+    private data class MasterSample(
+        val x: Float,
+        val y: Float,
+        val pressure: Float,
+        val t: Long,
+    )
+
+    private data class DynamicsResult(
+        val width: Float,
+        val alpha: Int,
+    )
+
+    private fun lerp(start: Float, end: Float, t: Float): Float = start + (end - start) * t
+}
+

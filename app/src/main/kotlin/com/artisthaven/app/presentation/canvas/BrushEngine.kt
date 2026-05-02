@@ -19,6 +19,7 @@ import com.artisthaven.app.domain.model.BlendBehavior
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.BrushProfile
 import com.artisthaven.app.domain.model.BrushStyle
+import com.artisthaven.app.domain.model.BrushType
 import com.artisthaven.app.domain.model.StrokePoint
 import com.artisthaven.app.domain.model.TextureTiling
 import com.artisthaven.app.domain.model.TipShape
@@ -42,6 +43,7 @@ import kotlin.random.Random
 class BrushEngine(
     private val context: Context,
 ) {
+    private val masterPaintBrush = MasterPaintBrush(context)
     private val random = Random(1977)
 
     private val grainBitmap: Bitmap by lazy { createNoiseBitmap(size = 96) }
@@ -54,6 +56,12 @@ class BrushEngine(
         isPreview: Boolean,
     ) {
         if (points.isEmpty()) return
+
+        // Master stamp engine path for pro brushes. Eraser keeps direct clear behavior.
+        if (brush.type != BrushType.ERASER) {
+            masterPaintBrush.renderStroke(canvas, points, brush)
+            return
+        }
 
         val profile = if (brush.profile.style == brush.style) {
             brush.profile
