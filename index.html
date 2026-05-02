@@ -218,9 +218,6 @@
     </div>
 
     <script>
-        const GITHUB_REPO = 'kilby8/Artist-haven';
-        const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/tags/latest`;
-
         async function downloadAPK() {
             const btn = document.getElementById('downloadBtn');
             const spinner = document.getElementById('spinner');
@@ -228,71 +225,39 @@
             
             btn.disabled = true;
             spinner.classList.add('active');
-            status.textContent = 'Fetching latest build...';
+            status.textContent = 'Starting download...';
             status.className = 'status loading';
             status.style.display = 'block';
 
             try {
-                // Fetch release info from GitHub API
-                const response = await fetch(GITHUB_API);
+                // Try direct GitHub raw link
+                const apkUrl = 'https://github.com/kilby8/Artist-haven/raw/main/app/build/outputs/apk/debug/app-debug.apk';
                 
-                if (response.ok) {
-                    const release = await response.json();
-                    
-                    // Find APK asset
-                    const apkAsset = release.assets.find(asset => asset.name.includes('.apk'));
-                    
-                    if (apkAsset) {
-                        status.textContent = 'Starting download...';
-                        status.className = 'status success';
-                        
-                        // Download the APK
-                        window.location.href = apkAsset.browser_download_url;
-                        
-                        setTimeout(() => {
-                            status.textContent = '✓ Download started! Check your Downloads folder.';
-                            btn.disabled = false;
-                            spinner.classList.remove('active');
-                        }, 1500);
-                        return;
-                    }
-                }
-                
-                throw new Error('No APK found in releases');
-            } catch (error) {
-                console.error('Error:', error);
-                status.textContent = '⚠ No APK available yet. Check back soon or visit GitHub Releases.';
-                status.className = 'status error';
-                
-                // Provide fallback link
+                const link = document.createElement('a');
+                link.href = apkUrl;
+                link.download = 'Artist-Haven.apk';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
                 setTimeout(() => {
-                    const link = document.createElement('a');
-                    link.href = `https://github.com/${GITHUB_REPO}/releases`;
-                    link.target = '_blank';
-                    link.textContent = 'Open GitHub Releases';
-                    link.style.display = 'block';
-                    link.style.marginTop = '10px';
-                    link.style.color = '#667eea';
-                    link.style.textDecoration = 'none';
-                    document.querySelector('.info-box').appendChild(link);
+                    status.textContent = '✓ Download started! Check your Downloads folder.';
+                    status.className = 'status success';
                     btn.disabled = false;
                     spinner.classList.remove('active');
-                }, 500);
+                }, 1000);
+            } catch (error) {
+                status.textContent = '⚠ Error starting download';
+                status.className = 'status error';
+                btn.disabled = false;
+                spinner.classList.remove('active');
             }
         }
 
         // Check availability on load
         window.addEventListener('load', async () => {
-            try {
-                const response = await fetch(GITHUB_API);
-                if (response.ok) {
-                    const release = await response.json();
-                    const versionBadge = document.getElementById('versionBadge');
-                    versionBadge.textContent = `Version ${release.tag_name}`;
-                }
-            } catch (error) {
-                console.error('Failed to fetch version:', error);
-            }
+            const versionBadge = document.getElementById('versionBadge');
+            versionBadge.textContent = 'Latest Build';
         });
     </script>
 </body>
