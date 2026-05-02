@@ -1,24 +1,31 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.artisthaven.drawing"
+    namespace = "com.artisthaven.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.artisthaven.drawing"
-        // AGSL (RuntimeShader) and SurfaceControl APIs require API 33+
-        minSdk = 33
+        applicationId = "com.artisthaven.app"
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -29,20 +36,53 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
-        viewBinding = true
+        compose = true
+        buildConfig = true
+    }
+    sourceSets {
+        main {
+            java.setSrcDirs(['src/main/kotlin'])
+        }
+        test {
+            java.setSrcDirs(['src/test/kotlin'])
+        }
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
 }
 
 dependencies {
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.9.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    // Low-latency surface rendering (SurfaceControlCompat, CanvasFrontBufferedRenderer)
-    implementation 'androidx.graphics:graphics-core:1.0.0'
-    // Stylus / ink event helpers
-    implementation 'androidx.input:input-motionevents:1.0.0-alpha01'
-    // ViewModel + coroutines for LayerManager
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.1'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.navigation.compose)
+
+    implementation("androidx.graphics:graphics-core:1.0.0")
+
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
+
+    implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
+    debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.ui.test.manifest)
 }

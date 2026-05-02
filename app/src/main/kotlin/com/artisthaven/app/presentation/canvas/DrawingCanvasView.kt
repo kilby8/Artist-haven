@@ -38,6 +38,18 @@ import java.util.UUID
  */
 class DrawingCanvasView(context: Context) : View(context) {
 
+    private val palmClassificationConstant: Int? by lazy(LazyThreadSafetyMode.NONE) {
+        runCatching {
+            MotionEvent::class.java.getField("CLASSIFICATION_PALM").getInt(null)
+        }.getOrNull()
+    }
+
+    private val palmToolTypeConstant: Int? by lazy(LazyThreadSafetyMode.NONE) {
+        runCatching {
+            MotionEvent::class.java.getField("TOOL_TYPE_PALM").getInt(null)
+        }.getOrNull()
+    }
+
     var onStrokeCommitted: ((DrawingStroke) -> Unit)? = null
     var onSizeAvailable: ((width: Int, height: Int) -> Unit)? = null
     var getLayerBitmaps: (() -> List<Pair<Bitmap, Float>>)? = null
@@ -93,7 +105,7 @@ class DrawingCanvasView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.getToolType(0) == MotionEvent.TOOL_TYPE_PALM) return false
+        if (isPalmContact(event)) return false
 
         val brush = getActiveBrush?.invoke() ?: return false
 
@@ -128,6 +140,21 @@ class DrawingCanvasView(context: Context) : View(context) {
             }
         }
         return false
+    }
+
+    private fun isPalmContact(event: MotionEvent): Boolean {
+        if (event.pointerCount <= 0) return false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            palmClassificationConstant != null &&
+            event.classification == palmClassificationConstant
+        ) {
+            return true
+        }
+
+        return palmToolTypeConstant?.let { palmToolType ->
+            event.getToolType(0) == palmToolType
+        } ?: false
     }
 
     private fun startStroke(event: MotionEvent, brush: Brush) {

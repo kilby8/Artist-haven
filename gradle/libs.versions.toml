@@ -1,6 +1,6 @@
 [versions]
 # Gradle 8.x + Kotlin 1.9.x for maximum Jetpack Compose compatibility
-agp = "8.5.2"
+agp = "8.13.2"
 kotlin = "1.9.24"
 # KSP version must match Kotlin version exactly: {kotlinVersion}-{kspPatch}
 ksp = "1.9.24-1.0.20"
