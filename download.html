@@ -3,10 +3,33 @@
 <head>
     <meta charset="utf-8">
     <title>Artist Haven - Download</title>
-    <meta http-equiv="refresh" content="0; url=https://github.com/kilby8/Artist-haven/raw/main/app/build/outputs/apk/debug/app-debug-v2.apk">
 </head>
 <body>
-    <p>Redirecting to download...</p>
-    <p><a href="https://github.com/kilby8/Artist-haven/raw/main/app/build/outputs/apk/debug/app-debug-v2.apk">Click here if not redirected</a></p>
+    <p id="status">Resolving latest download...</p>
+    <p><a id="fallback" href="/Artist-haven/docs/downloads/Artist-Haven-debug.apk">Click here if not redirected</a></p>
+
+    <script>
+        (function () {
+            const status = document.getElementById('status');
+            const fallback = document.getElementById('fallback');
+            const fallbackUrl = '/Artist-haven/docs/downloads/Artist-Haven-debug.apk';
+
+            fetch('/Artist-haven/docs/downloads/latest.json?t=' + Date.now(), { cache: 'no-store' })
+                .then((res) => {
+                    if (!res.ok) throw new Error('latest.json unavailable');
+                    return res.json();
+                })
+                .then((latest) => {
+                    const url = latest && latest.relativeUrl ? latest.relativeUrl : fallbackUrl;
+                    if (fallback) fallback.href = url;
+                    if (status) status.textContent = 'Redirecting to latest APK...';
+                    window.location.href = url;
+                })
+                .catch(() => {
+                    if (status) status.textContent = 'Could not resolve latest APK. Use fallback link below.';
+                    if (fallback) fallback.href = fallbackUrl;
+                });
+        })();
+    </script>
 </body>
 </html>

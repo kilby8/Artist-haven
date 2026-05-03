@@ -404,25 +404,44 @@
         </div>
 
         <div class="footer">
-            <p>Artist Haven v1.0 • Testing Build</p>
+            <p id="footerVersion">Artist Haven • Testing Build</p>
             <div class="last-updated">Last Updated: <span id="lastUpdated">--</span></div>
         </div>
     </div>
 
     <script>
-        // Configuration
+        const LATEST_JSON_URL = '/Artist-haven/docs/downloads/latest.json';
+        const FALLBACK_APK_URL = '/Artist-haven/docs/downloads/Artist-Haven-debug.apk';
         const APK_CONFIG = {
-            versionName: "1.0",
-            versionCode: 1,
+            versionName: 'unknown',
+            versionCode: '?',
             buildTime: new Date().toLocaleString(),
-            packageName: "com.artisthaven.app",
-            apkPath: "/apk/app-release.apk", // Relative path or full URL
+            packageName: 'com.artisthaven.app',
+            apkPath: FALLBACK_APK_URL,
+            apkFile: 'Artist-Haven-debug.apk',
             minApi: 26,
-            targetApi: 34
+            targetApi: 34,
         };
 
+        async function loadLatestMetadata() {
+            const response = await fetch(`${LATEST_JSON_URL}?t=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error('latest.json unavailable');
+            const latest = await response.json();
+
+            APK_CONFIG.versionName = latest.versionName || APK_CONFIG.versionName;
+            APK_CONFIG.versionCode = latest.versionCode ?? APK_CONFIG.versionCode;
+            APK_CONFIG.buildTime = latest.builtAtUtc || APK_CONFIG.buildTime;
+            APK_CONFIG.apkPath = latest.relativeUrl || APK_CONFIG.apkPath;
+            APK_CONFIG.apkFile = latest.file || APK_CONFIG.apkFile;
+        }
+
         // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                await loadLatestMetadata();
+            } catch (error) {
+                console.log('Falling back to legacy APK metadata:', error);
+            }
             updateDisplay();
             checkAPKAvailability();
         });
@@ -431,6 +450,10 @@
             document.getElementById('versionDisplay').textContent = 
                 `${APK_CONFIG.versionName} • Build ${APK_CONFIG.versionCode}`;
             document.getElementById('lastUpdated').textContent = APK_CONFIG.buildTime;
+            const footerVersion = document.getElementById('footerVersion');
+            if (footerVersion) {
+                footerVersion.textContent = `Artist Haven v${APK_CONFIG.versionName} • Build ${APK_CONFIG.versionCode}`;
+            }
         }
 
         function checkAPKAvailability() {
@@ -447,7 +470,7 @@
                             document.getElementById('fileSizeDisplay').textContent = `${sizeMB} MB`;
                         }
                     } else {
-                        showStatus('APK not found. Please build and upload the APK file.', 'error');
+                        showStatus('APK not found. Please publish the APK to docs/downloads.', 'error');
                         document.getElementById('downloadBtn').disabled = true;
                     }
                 })
@@ -461,16 +484,16 @@
         function downloadAPK() {
             const link = document.createElement('a');
             link.href = APK_CONFIG.apkPath;
-            link.download = `Artist-Haven-v${APK_CONFIG.versionName}.apk`;
+            link.download = APK_CONFIG.apkFile;
 
-            showStatus(`Downloading Artist Haven v${APK_CONFIG.versionName}...`, 'info');
+            showStatus(`Downloading ${APK_CONFIG.apkFile}...`, 'info');
 
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
 
             setTimeout(() => {
-                showStatus(`✓ Download started! Install on your Android device.`, 'success');
+                showStatus(`✓ Download started! Install ${APK_CONFIG.apkFile} on your Android device.`, 'success');
             }, 500);
         }
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -114,18 +114,18 @@
 </head>
 <body>
     <main class="card">
-        <div class="logo">🎨</div>
+        <div class="logo">ðŸŽ¨</div>
         <h1>Artist Haven</h1>
         <p class="subtitle">Download the latest APK built from the fixed Android project.</p>
 
         <div class="badge-row">
-            <span class="badge">Version 1.0</span>
+            <span class="badge" id="version-badge">Version ...</span>
             <span class="badge">Debug APK</span>
             <span class="badge">Min SDK 26</span>
         </div>
 
-        <a class="download-btn" href="/Artist-haven/docs/downloads/Artist-Haven-debug.apk" download>
-            📥 Download Artist-Haven-debug.apk
+        <a class="download-btn" href="/Artist-haven/docs/downloads/Artist-Haven-v1.1-b2-20260503-021202-debug.apk" download>
+            Download Artist-Haven-v1.1-b2-20260503-021202-debug.apk
         </a>
         <p class="note">If Android blocks the install, allow installs from unknown sources for your browser or file manager.</p>
 
@@ -135,7 +135,7 @@
                 <li>Tap the download button above.</li>
                 <li>Open the APK from your Downloads folder.</li>
                 <li>Approve the install prompt on your Android device or emulator.</li>
-                <li>If you use ADB, install with <code>adb install Artist-Haven-debug.apk</code>.</li>
+                <li>If you use ADB, install with <code>adb install Artist-Haven-v1.1-b2-20260503-021202-debug.apk</code>.</li>
             </ol>
         </section>
 
@@ -144,6 +144,43 @@
             <a href="https://github.com/kilby8/Artist-haven" target="_blank" rel="noreferrer">GitHub</a>
         </p>
     </main>
+    <script>
+        (function () {
+            const versionBadge = document.getElementById('version-badge');
+            const downloadButton = document.querySelector('.download-btn');
+            const adbCode = document.querySelector('.info code');
+            if (!versionBadge) return;
+
+            fetch('/Artist-haven/docs/downloads/latest.json?t=' + Date.now(), { cache: 'no-store' })
+                .then((res) => {
+                    if (!res.ok) throw new Error('Failed to load latest.json');
+                    return res.json();
+                })
+                .then((latest) => {
+                    const name = latest && latest.versionName ? latest.versionName : 'unknown';
+                    const code = latest && latest.versionCode !== undefined ? latest.versionCode : '?';
+                    const file = latest && latest.file ? latest.file : null;
+                    const url = latest && latest.relativeUrl ? latest.relativeUrl : null;
+                    versionBadge.textContent = `Version ${name} (${code})`;
+
+                    if (downloadButton && file && url) {
+                        downloadButton.href = url;
+                        downloadButton.textContent = `Download ${file}`;
+                    }
+
+                    if (adbCode && file) {
+                        adbCode.textContent = `adb install ${file}`;
+                    }
+                })
+                .catch(() => {
+                    versionBadge.textContent = 'Version unavailable';
+                });
+        })();
+    </script>
 </body>
 </html>
+
+
+
+
 

@@ -202,10 +202,31 @@
     </div>
 
     <script>
-        const APK_URL = '/apk/app-release.apk';
-        const APK_NAME = 'Artist-Haven-v1.0.apk';
+        const LATEST_JSON_URL = '/Artist-haven/docs/downloads/latest.json';
+        const FALLBACK_URL = '/Artist-haven/docs/downloads/Artist-Haven-debug.apk';
+        const FALLBACK_NAME = 'Artist-Haven-debug.apk';
         const downloadBtn = document.getElementById('downloadBtn');
         const statusEl = document.getElementById('status');
+        let latestMeta = {
+            relativeUrl: FALLBACK_URL,
+            file: FALLBACK_NAME,
+            versionName: 'unknown',
+            versionCode: '?',
+        };
+
+        async function loadLatestMetadata() {
+            const response = await fetch(`${LATEST_JSON_URL}?t=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('latest.json not available');
+            }
+            const json = await response.json();
+            latestMeta = {
+                relativeUrl: json.relativeUrl || FALLBACK_URL,
+                file: json.file || FALLBACK_NAME,
+                versionName: json.versionName || 'unknown',
+                versionCode: json.versionCode ?? '?',
+            };
+        }
 
         function downloadAPK() {
             downloadBtn.classList.add('loading');
@@ -214,8 +235,8 @@
 
             // Create a link element and trigger download
             const link = document.createElement('a');
-            link.href = APK_URL;
-            link.download = APK_NAME;
+            link.href = latestMeta.relativeUrl;
+            link.download = latestMeta.file;
 
             // Append to body (required for Firefox)
             document.body.appendChild(link);
@@ -229,7 +250,7 @@
             // Reset button after a delay
             setTimeout(() => {
                 downloadBtn.classList.remove('loading');
-                downloadBtn.innerHTML = '📥 Download APK';
+                downloadBtn.innerHTML = `📥 Download ${latestMeta.file}`;
                 statusEl.classList.add('success');
                 statusEl.textContent = '✓ Download started! Check your Downloads folder.';
 
@@ -243,17 +264,21 @@
 
         // Check if APK exists on page load
         window.addEventListener('load', () => {
-            fetch(APK_URL, { method: 'HEAD' })
+            loadLatestMetadata()
+                .then(() => {
+                    downloadBtn.innerHTML = `📥 Download ${latestMeta.file}`;
+                    return fetch(latestMeta.relativeUrl, { method: 'HEAD' });
+                })
                 .then(response => {
                     if (!response.ok) {
                         statusEl.classList.add('error');
-                        statusEl.textContent = '⚠️ APK not found - please ensure it\'s uploaded to the server';
+                        statusEl.textContent = '⚠️ APK not found - please ensure it\'s published to docs/downloads';
                         downloadBtn.disabled = true;
                     }
                 })
                 .catch(() => {
-                    // Network error or APK not available - still allow download attempt
-                    console.log('APK availability check failed - download may still work if file exists');
+                    // Keep fallback enabled even if metadata fetch fails.
+                    downloadBtn.innerHTML = `📥 Download ${latestMeta.file}`;
                 });
         });
 
