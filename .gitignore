@@ -12,3 +12,4 @@ local.properties
 /\.gradle-user-home
 
 # APKs intended for distribution are published under docs/downloads/
+docs/downloads/*.apk
