@@ -1,9 +1,12 @@
 ﻿{
     "versionName":  "1.1",
     "versionCode":  2,
-    "file":  "Artist-Haven-v1.1-b2-20260503-021619-debug.apk",
-    "relativeUrl":  "/Artist-haven/docs/downloads/Artist-Haven-v1.1-b2-20260503-021619-debug.apk",
-    "sizeBytes":  17470416,
-    "sha256":  "6BD44DAF50503BE49861D0DE1722E38F0EE016F83422CF8E97BEBF4CE64E8C26",
-    "builtAtUtc":  "2026-05-03T02:16:19.3637322Z"
+    "file":  "Artist-Haven-debug.apk",
+    "relativeUrl":  "/Artist-haven/docs/downloads/Artist-Haven-debug.apk",
+    "builtAtUtc":  "2026-05-02T00:00:00.0000000Z",
+    "changes": [
+        "Fixed canvas type names being cut off in menu",
+        "Improved color visibility on linen canvas",
+        "Enhanced touch responsiveness"
+    ]
 }
