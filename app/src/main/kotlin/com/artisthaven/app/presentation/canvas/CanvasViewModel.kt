@@ -2,6 +2,7 @@ package com.artisthaven.app.presentation.canvas
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.graphics.Paint as AndroidPaint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
@@ -731,36 +732,79 @@ private class StrokeCommand(
 ) : DrawingCommand {
 
     private var undoBitmap: Bitmap? = null
+    private var undoBounds: Rect? = null
+    private val restorePaint = AndroidPaint().apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+    }
 
     override val description: String = "Stroke with ${stroke.brushSnapshot.type.displayName}"
 
     override fun execute() {
-        // Memory trade-off: capturing a full-layer snapshot per stroke is simple and
-        // correct but costs ~16 MB per undo entry for a 2048×2048 ARGB_8888 canvas.
-        // CommandHistory caps history at maxSize=50 to bound peak usage (~800 MB worst
-        // case). A future optimisation can store per-stroke bounding-box patches instead.
         if (undoBitmap == null) {
-            undoBitmap = targetBitmap.copy(targetBitmap.config ?: Bitmap.Config.ARGB_8888, true)
+            val bounds = computeStrokeBounds(stroke, targetBitmap.width, targetBitmap.height)
+            undoBounds = bounds
+            undoBitmap = Bitmap.createBitmap(targetBitmap, bounds.left, bounds.top, bounds.width(), bounds.height())
         }
         renderStroke()
     }
 
     override fun undo() {
         undoBitmap?.let { snapshot ->
+            val bounds = undoBounds ?: return
             val canvas = android.graphics.Canvas(targetBitmap)
-            val paint = AndroidPaint()
-            paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
-            canvas.drawBitmap(snapshot, 0f, 0f, paint)
+            canvas.drawBitmap(snapshot, bounds.left.toFloat(), bounds.top.toFloat(), restorePaint)
         }
     }
 
     private fun renderStroke() {
         val canvas = android.graphics.Canvas(targetBitmap)
+        val bounds = undoBounds
+        val saveCount = if (bounds != null) {
+            canvas.save().also { canvas.clipRect(bounds) }
+        } else {
+            -1
+        }
         brushEngine.renderStroke(
             canvas = canvas,
             points = stroke.points,
             brush = stroke.brushSnapshot,
             isPreview = false,
         )
+        if (saveCount >= 0) {
+            canvas.restoreToCount(saveCount)
+        }
+    }
+
+    private fun computeStrokeBounds(stroke: DrawingStroke, bitmapWidth: Int, bitmapHeight: Int): Rect {
+        if (stroke.points.isEmpty()) {
+            return Rect(0, 0, bitmapWidth, bitmapHeight)
+        }
+
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+
+        stroke.points.forEach { point ->
+            minX = minOf(minX, point.x)
+            minY = minOf(minY, point.y)
+            maxX = maxOf(maxX, point.x)
+            maxY = maxOf(maxY, point.y)
+        }
+
+        val blurPadding = stroke.brushSnapshot.size * stroke.brushSnapshot.profile.edge.softness
+        val jitterPadding = stroke.brushSnapshot.size * maxOf(
+            0.2f,
+            stroke.brushSnapshot.profile.tip.jitter,
+            stroke.brushSnapshot.profile.tip.fluidJitterPercent,
+        )
+        val pad = (stroke.brushSnapshot.size * 2f + blurPadding + jitterPadding + 8f).toInt()
+
+        val left = (minX - pad).toInt().coerceIn(0, bitmapWidth)
+        val top = (minY - pad).toInt().coerceIn(0, bitmapHeight)
+        val right = (maxX + pad).toInt().coerceIn(left + 1, bitmapWidth)
+        val bottom = (maxY + pad).toInt().coerceIn(top + 1, bitmapHeight)
+
+        return Rect(left, top, right, bottom)
     }
 }

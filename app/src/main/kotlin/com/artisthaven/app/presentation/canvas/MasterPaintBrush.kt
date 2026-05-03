@@ -1,5 +1,6 @@
 package com.artisthaven.app.presentation.canvas
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
@@ -11,13 +12,15 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.graphics.RenderNode
+import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
 import androidx.compose.ui.graphics.toArgb
-import com.artisthaven.app.domain.model.BlendBehavior
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.StrokePoint
+import com.artisthaven.app.presentation.canvas.shaders.AGSLStrokeShaders
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -36,14 +39,63 @@ import kotlin.random.Random
  * - Wet blending via DARKEN / SRC_ATOP / MULTIPLY / etc.
  */
 class MasterPaintBrush(
-    private val context: Context,
+    context: Context,
 ) {
     private val bristleBitmap: Bitmap by lazy { createBristleTipBitmap(80) }
     private val paperBitmap: Bitmap by lazy { createColdPressPaperBitmap(128) }
     private val random = Random(1337)
 
+    private val srcOverMode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
     private val tipShaderMatrix = Matrix()
     private val grainShaderMatrix = Matrix()
+    private val stampDstRect = RectF()
+    private val renderBounds = RectF()
+
+    private val clampTipShader by lazy {
+        BitmapShader(bristleBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+    }
+    private val repeatTipShader by lazy {
+        BitmapShader(bristleBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+    }
+    private val grainShader by lazy {
+        BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+    }
+    private val clampDualShader by lazy {
+        ComposeShader(clampTipShader, grainShader, PorterDuff.Mode.MULTIPLY)
+    }
+    private val repeatDualShader by lazy {
+        ComposeShader(repeatTipShader, grainShader, PorterDuff.Mode.MULTIPLY)
+    }
+    private val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        isFilterBitmap = true
+        xfermode = srcOverMode
+    }
+    private val singleStampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        isFilterBitmap = true
+        xfermode = srcOverMode
+    }
+    private var cachedMaskRadius = Float.NaN
+    private var cachedMaskFilter: BlurMaskFilter? = null
+    private val hardwareRenderNode: RenderNode? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) RenderNode("MasterPaintBrush") else null
+
+    @SuppressLint("NewApi")
+    private val agslStampShader: RuntimeShader? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AGSLStrokeShaders.createStampMaskShader() else null
+
+    @SuppressLint("NewApi")
+    private val agslPaint: Paint? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                isFilterBitmap = true
+                xfermode = srcOverMode
+            }
+        } else {
+            null
+        }
 
     fun renderStroke(
         canvas: Canvas,
@@ -61,15 +113,50 @@ class MasterPaintBrush(
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && canvas.isHardwareAccelerated) {
-            val node = RenderNode("MasterPaintBrush").apply {
-                setPosition(0, 0, max(1, canvas.width), max(1, canvas.height))
+            val node = hardwareRenderNode
+            if (node != null) {
+                node.setPosition(0, 0, max(1, canvas.width), max(1, canvas.height))
+                val recordingCanvas = node.beginRecording(max(1, canvas.width), max(1, canvas.height))
+                drawStampLoop(recordingCanvas, spline, brush, isPreview)
+                node.endRecording()
+                canvas.drawRenderNode(node)
+            } else {
+                drawStampLoop(canvas, spline, brush, isPreview)
             }
-            val rc = node.beginRecording(max(1, canvas.width), max(1, canvas.height))
-            drawStampLoop(rc, spline, brush, isPreview)
-            node.endRecording()
-            canvas.drawRenderNode(node)
         } else {
             drawStampLoop(canvas, spline, brush, isPreview)
+        }
+    }
+
+    fun renderStampPositions(
+        canvas: Canvas,
+        stampPositions: List<StrokeComputeThread.StampPosition>,
+        brush: Brush,
+        isPreview: Boolean = false,
+        outBounds: RectF? = null,
+    ) {
+        if (stampPositions.isEmpty()) {
+            outBounds?.setEmpty()
+            return
+        }
+
+        outBounds?.setEmpty()
+        val tipShader = prepareStampState(stampPaint, brush)
+
+        stampPositions.forEach { stamp ->
+            drawStampAt(
+                canvas = canvas,
+                paint = stampPaint,
+                tipShader = tipShader,
+                brush = brush,
+                x = stamp.x,
+                y = stamp.y,
+                width = stamp.width,
+                alpha = (stamp.alpha * 255f).toInt().coerceIn(8, 255),
+                angleDeg = stamp.angleDeg,
+                isPreview = isPreview,
+                outBounds = outBounds,
+            )
         }
     }
 
@@ -83,19 +170,7 @@ class MasterPaintBrush(
         val fluidJitterPercent = brush.profile.tip.fluidJitterPercent.coerceIn(0f, 0.12f)
         val microDabEnabled = brush.profile.tip.enableMicroDab || brush.profile.tip.useMicroDabs
 
-        val tipTile = if (brush.profile.grain.enabled) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP
-        val tipShader = BitmapShader(bristleBitmap, tipTile, tipTile)
-        val grainShader = BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-        val dualShader = ComposeShader(tipShader, grainShader, PorterDuff.Mode.MULTIPLY)
-
-        val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            isFilterBitmap = true
-            // Fluid accumulation: always SRC_OVER with low per-dab alpha.
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
-            colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
-            shader = dualShader
-        }
+        val tipShader = prepareStampState(stampPaint, brush)
 
         var carry = 0f
         var alphaEma = -1f
@@ -113,11 +188,7 @@ class MasterPaintBrush(
             val adaptiveSpacing = max(minGap * 0.5f, baseSpacing * lerp(1f, 1f - spacingTightening, velocityFactor))
 
             // Wet/soft edges
-            stampPaint.maskFilter = if (brush.profile.edge.softness > 0.01f) {
-                BlurMaskFilter(dynamics.width * brush.profile.edge.softness, BlurMaskFilter.Blur.NORMAL)
-            } else {
-                null
-            }
+            stampPaint.maskFilter = resolveMaskFilter(dynamics.width * brush.profile.edge.softness)
 
             var consumed = carry
             while (consumed + adaptiveSpacing <= segLen) {
@@ -146,7 +217,6 @@ class MasterPaintBrush(
                     canvas = canvas,
                     paint = stampPaint,
                     tipShader = tipShader,
-                    grainShader = grainShader,
                     brush = brush,
                     x = primaryX,
                     y = primaryY,
@@ -160,7 +230,6 @@ class MasterPaintBrush(
                     canvas = canvas,
                     paint = stampPaint,
                     tipShader = tipShader,
-                    grainShader = grainShader,
                     brush = brush,
                     x = primaryX + jitterX * 0.45f,
                     y = primaryY + jitterY * 0.45f,
@@ -175,22 +244,37 @@ class MasterPaintBrush(
     }
 
     private fun drawSingleStamp(canvas: Canvas, sample: MasterSample, brush: Brush, isPreview: Boolean) {
-        val tipShader = BitmapShader(bristleBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        val grainShader = BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = ComposeShader(tipShader, grainShader, PorterDuff.Mode.MULTIPLY)
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
-            colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
-        }
+        val tipShader = prepareStampState(singleStampPaint, brush)
         val dyn = dynamics(brush, sample.pressure, velocity = 0f)
-        drawStampAt(canvas, paint, tipShader, grainShader, brush, sample.x, sample.y, dyn.width, dyn.alpha, 0f, isPreview)
+        drawStampAt(canvas, singleStampPaint, tipShader, brush, sample.x, sample.y, dyn.width, dyn.alpha, 0f, isPreview)
+    }
+
+    private fun prepareStampState(paint: Paint, brush: Brush): BitmapShader {
+        val tipShader = if (brush.profile.grain.enabled) repeatTipShader else clampTipShader
+        paint.shader = if (brush.profile.grain.enabled) repeatDualShader else clampDualShader
+        paint.colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+        paint.maskFilter = null
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            agslPaint?.colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+        }
+
+        return tipShader
+    }
+
+    private fun resolveMaskFilter(radius: Float): BlurMaskFilter? {
+        if (radius <= 0.01f) return null
+        if (cachedMaskFilter == null || kotlin.math.abs(radius - cachedMaskRadius) > 0.5f) {
+            cachedMaskRadius = radius
+            cachedMaskFilter = BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL)
+        }
+        return cachedMaskFilter
     }
 
     private fun drawStampAt(
         canvas: Canvas,
         paint: Paint,
         tipShader: BitmapShader,
-        grainShader: BitmapShader,
         brush: Brush,
         x: Float,
         y: Float,
@@ -198,6 +282,7 @@ class MasterPaintBrush(
         alpha: Int,
         angleDeg: Float,
         isPreview: Boolean,
+        outBounds: RectF? = null,
     ) {
         // Keep each dab translucent so overlap builds up naturally.
         val accumulationStrength = brush.profile.tip.fluidAccumulationAlpha.coerceIn(0.05f, 0.35f)
@@ -217,14 +302,55 @@ class MasterPaintBrush(
         grainShader.setLocalMatrix(grainShaderMatrix)
 
         val r = max(0.35f, width * 0.5f)
-        if (brush.profile.tip.enableMicroDab && !isPreview) {
+        outBounds?.let { updateBounds(it, x, y, r) }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && brush.type.usesShader) {
+            drawShaderStampAt(tipShader, brush, canvas, x, y, r, angleDeg, tipScale, accumulationAlpha)
+        } else if (brush.profile.tip.enableMicroDab && !isPreview) {
             val microJitter = brush.size * 0.05f
             val jx = (random.nextFloat() * 2f - 1f) * microJitter
             val jy = (random.nextFloat() * 2f - 1f) * microJitter
-            val dst = android.graphics.RectF(x - r + jx, y - r + jy, x + r + jx, y + r + jy)
-            canvas.drawBitmap(bristleBitmap, null, dst, paint)
+            stampDstRect.set(x - r + jx, y - r + jy, x + r + jx, y + r + jy)
+            canvas.drawBitmap(bristleBitmap, null, stampDstRect, paint)
         } else {
             canvas.drawCircle(x, y, r, paint)
+        }
+    }
+
+    @SuppressLint("NewApi")
+    private fun drawShaderStampAt(
+        tipShader: BitmapShader,
+        brush: Brush,
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        radius: Float,
+        angleDeg: Float,
+        tipScale: Float,
+        accumulationAlpha: Int,
+    ) {
+        val shader = agslStampShader ?: return
+        val paint = agslPaint ?: return
+
+        shader.setInputShader("uStampTexture", tipShader)
+        shader.setFloatUniform("uRotation", Math.toRadians(angleDeg.toDouble()).toFloat())
+        shader.setFloatUniform("uScale", tipScale)
+        shader.setFloatUniform("uCenter", x, y)
+
+        paint.shader = shader
+        paint.alpha = accumulationAlpha
+        paint.colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+
+        stampDstRect.set(x - radius, y - radius, x + radius, y + radius)
+        canvas.drawRect(stampDstRect, paint)
+    }
+
+    private fun updateBounds(bounds: RectF, x: Float, y: Float, radius: Float) {
+        renderBounds.set(x - radius, y - radius, x + radius, y + radius)
+        if (bounds.isEmpty) {
+            bounds.set(renderBounds)
+        } else {
+            bounds.union(renderBounds)
         }
     }
 
@@ -297,13 +423,6 @@ class MasterPaintBrush(
         return out
     }
 
-    private fun toPorterDuffMode(behavior: BlendBehavior): PorterDuff.Mode = when (behavior) {
-        BlendBehavior.MULTIPLY -> PorterDuff.Mode.MULTIPLY
-        BlendBehavior.DARKEN -> PorterDuff.Mode.DARKEN
-        BlendBehavior.SRC_ATOP -> PorterDuff.Mode.SRC_ATOP
-        BlendBehavior.CLEAR -> PorterDuff.Mode.CLEAR
-        BlendBehavior.NORMAL -> PorterDuff.Mode.SRC_OVER
-    }
 
     private fun createBristleTipBitmap(size: Int): Bitmap {
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)

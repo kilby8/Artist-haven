@@ -4,8 +4,6 @@ import android.graphics.Canvas
 import android.graphics.RenderNode
 import android.os.Build
 import androidx.annotation.RequiresApi
-import com.artisthaven.app.domain.model.Brush
-import com.artisthaven.app.domain.model.StrokePoint
 
 /**
  * RenderNode-based Stroke Cache for Zero-Latency Rendering.
@@ -27,8 +25,6 @@ class RenderNodeStrokeCache(
     private val canvasHeight: Int,
 ) {
     private val cachedNodes = mutableListOf<CachedNodeSegment>()
-    private var lastCacheTime = 0L
-    private val cacheThresholdMs = 100L  // Cache segments older than 100ms
 
     data class CachedNodeSegment(
         val renderNode: RenderNode,
@@ -42,15 +38,10 @@ class RenderNodeStrokeCache(
      * Only call this for segments that are truly "final" and won't be re-rendered.
      */
     @RequiresApi(Build.VERSION_CODES.Q)
-    fun cacheStrokeSegment(
-        canvas: Canvas,
+    fun cacheSegment(
         pointRange: IntRange,
-        points: List<StrokePoint>,
-        brush: Brush,
-        renderFn: (Canvas, List<StrokePoint>, Brush) -> Unit,
+        renderBlock: (Canvas) -> Unit,
     ) {
-        if (!canvas.isHardwareAccelerated) return  // Only use for HW-accelerated canvas
-
         val now = System.currentTimeMillis()
 
         // Create a new RenderNode for this segment
@@ -59,8 +50,7 @@ class RenderNodeStrokeCache(
         }
 
         val recordingCanvas = node.beginRecording()
-        val segmentPoints = points.slice(pointRange)
-        renderFn(recordingCanvas, segmentPoints, brush)
+        renderBlock(recordingCanvas)
         node.endRecording()
 
         cachedNodes.add(
@@ -72,7 +62,6 @@ class RenderNodeStrokeCache(
             )
         )
 
-        lastCacheTime = now
     }
 
     /**
@@ -82,17 +71,6 @@ class RenderNodeStrokeCache(
     fun replayCachedSegments(canvas: Canvas) {
         for (segment in cachedNodes) {
             canvas.drawRenderNode(segment.renderNode)
-        }
-    }
-
-    /**
-     * Clear any cached nodes older than the threshold.
-     * Call periodically to avoid memory bloat for very long strokes.
-     */
-    fun pruneOldSegments() {
-        val now = System.currentTimeMillis()
-        cachedNodes.removeAll { segment ->
-            (now - segment.createdTimeMs) >  cacheThresholdMs
         }
     }
 
@@ -110,7 +88,6 @@ class RenderNodeStrokeCache(
      */
     fun clearAllCaches() {
         cachedNodes.clear()
-        lastCacheTime = 0L
     }
 
     /**

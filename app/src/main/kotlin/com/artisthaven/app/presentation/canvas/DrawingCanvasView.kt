@@ -1,11 +1,12 @@
 package com.artisthaven.app.presentation.canvas
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint as AndroidPaint
 import android.graphics.PorterDuff
+import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -64,12 +65,20 @@ class DrawingCanvasView(context: Context) : View(context) {
     private var previewBitmap: Bitmap? = null
     private var previewCanvas: AndroidCanvas? = null
     private val layerPaint = AndroidPaint()
+    private val previewBrushRenderer = MasterPaintBrush(context)
+    private val previewBounds = RectF()
+    private val predictionBounds = RectF()
+    private val clearBounds = RectF()
+    private val invalidateBounds = RectF()
+    private val invalidateRect = Rect()
 
     // Zero-Latency Engine Components
     private var strokeComputeThread: StrokeComputeThread? = null
     private val predictionRenderer = PredictionRenderer()
     private var renderNodeCache: RenderNodeStrokeCache? = null
     private var previewComputationGeneration = 0L
+    private var lastCachedPreviewStampIndex = 0
+    private val activePreviewTailStampCount = 24
 
     // Minimum pixel distance the pointer must travel before a stroke begins.
     // Prevents single-tap jitter from creating unwanted micro-strokes.
@@ -138,6 +147,9 @@ class DrawingCanvasView(context: Context) : View(context) {
         if (renderNodeCache == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             renderNodeCache = RenderNodeStrokeCache(w, h)
         }
+        previewBounds.setEmpty()
+        predictionBounds.setEmpty()
+        lastCachedPreviewStampIndex = 0
 
         onSizeAvailable?.invoke(w, h)
     }
@@ -152,14 +164,14 @@ class DrawingCanvasView(context: Context) : View(context) {
         // Render canvas background first (texture, tooth, lighting)
         getCanvasRenderingManager?.invoke()?.renderBackground(canvas)
 
-        // Replay any cached RenderNode segments (zero-latency optimization)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            renderNodeCache?.replayCachedSegments(canvas)
-        }
-
         getLayerBitmaps?.invoke()?.forEach { (bitmap, opacity) ->
             layerPaint.alpha = (opacity * 255).toInt()
             canvas.drawBitmap(bitmap, 0f, 0f, layerPaint)
+        }
+
+        // Replay cached active-stroke segments above persistent layers.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            renderNodeCache?.replayCachedSegments(canvas)
         }
 
         previewBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -267,6 +279,12 @@ class DrawingCanvasView(context: Context) : View(context) {
         currentStrokePoints.clear()
         lastPreviewRenderIndex = 0  // Reset preview render tracking
         previewComputationGeneration++
+        lastCachedPreviewStampIndex = 0
+        previewBounds.setEmpty()
+        predictionBounds.setEmpty()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            renderNodeCache?.clearAllCaches()
+        }
         clearPreview()
         addCurrentPoint(event)
     }
@@ -324,6 +342,8 @@ class DrawingCanvasView(context: Context) : View(context) {
                 currentY = currPoint.y,
                 brush = brush,
             )
+            updateLineDirtyBounds(lastPoint.x, lastPoint.y, currPoint.x, currPoint.y, brush.size, predictionBounds)
+            invalidateCanvasBounds(predictionBounds)
         }
 
         // Off-Main-Thread Computation: Asynchronously compute high-fidelity stamps on background thread
@@ -340,21 +360,77 @@ class DrawingCanvasView(context: Context) : View(context) {
             lastPreviewRenderIndex = points.size
         }
 
-        postInvalidateOnAnimation()
+        if (points.size < 2) {
+            postInvalidateOnAnimation()
+        }
     }
 
     /**
-     * Apply precomputed stamp positions directly to the layer bitmap.
-     * This runs on the main thread but the heavy lifting was done by StrokeComputeThread.
+     * Apply precomputed stamp positions to the active front buffer while older segments are
+     * optionally replayed from RenderNode cache.
      */
     private fun applyPrecomputedPreview(
         precomputed: StrokeComputeThread.PrecomputedStroke,
         brush: Brush,
     ) {
         val canvas = previewCanvas ?: return
-        clearPreview()
-        predictionRenderer.renderPredictionCurve(canvas, precomputed.predictedPath, brush)
-        postInvalidateOnAnimation()
+
+        cacheFinishedPreviewSegments(precomputed, brush)
+
+        clearBounds.set(previewBounds)
+        if (!predictionBounds.isEmpty) {
+            if (clearBounds.isEmpty) clearBounds.set(predictionBounds) else clearBounds.union(predictionBounds)
+        }
+        clearPreview(clearBounds.takeIf { !it.isEmpty })
+
+        val tailStart = lastCachedPreviewStampIndex.coerceAtMost(precomputed.stampPositions.size)
+        val tailStamps = precomputed.stampPositions.subList(tailStart, precomputed.stampPositions.size)
+
+        previewBounds.setEmpty()
+        if (tailStamps.isNotEmpty()) {
+            previewBrushRenderer.renderStampPositions(
+                canvas = canvas,
+                stampPositions = tailStamps,
+                brush = brush,
+                isPreview = true,
+                outBounds = previewBounds,
+            )
+        } else if (precomputed.predictedPath.size >= 2) {
+            predictionRenderer.renderPredictionCurve(canvas, precomputed.predictedPath, brush)
+            updatePathDirtyBounds(precomputed.predictedPath, brush.size, previewBounds)
+        }
+
+        predictionBounds.setEmpty()
+        invalidateBounds.set(previewBounds)
+        if (!clearBounds.isEmpty) {
+            if (invalidateBounds.isEmpty) invalidateBounds.set(clearBounds) else invalidateBounds.union(clearBounds)
+        }
+        invalidateCanvasBounds(invalidateBounds)
+    }
+
+    private fun cacheFinishedPreviewSegments(
+        precomputed: StrokeComputeThread.PrecomputedStroke,
+        brush: Brush,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+
+        val cache = renderNodeCache ?: return
+        val cacheUntil = (precomputed.stampPositions.size - activePreviewTailStampCount).coerceAtLeast(0)
+        if (cacheUntil <= lastCachedPreviewStampIndex) return
+
+        val segment = precomputed.stampPositions.subList(lastCachedPreviewStampIndex, cacheUntil)
+        if (segment.isEmpty()) return
+
+        val range = lastCachedPreviewStampIndex until cacheUntil
+        cache.cacheSegment(range) { recordingCanvas ->
+            previewBrushRenderer.renderStampPositions(
+                canvas = recordingCanvas,
+                stampPositions = segment,
+                brush = brush,
+                isPreview = true,
+            )
+        }
+        lastCachedPreviewStampIndex = cacheUntil
     }
 
     private fun finishStroke(brush: Brush) {
@@ -366,6 +442,9 @@ class DrawingCanvasView(context: Context) : View(context) {
         currentStrokePoints.clear()
         lastPreviewRenderIndex = 0  // Reset preview render tracking
         previewComputationGeneration++
+        lastCachedPreviewStampIndex = 0
+        previewBounds.setEmpty()
+        predictionBounds.setEmpty()
 
         // Clear RenderNode cache for finished stroke
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -398,7 +477,89 @@ class DrawingCanvasView(context: Context) : View(context) {
     }
 
     private fun clearPreview() {
-        previewCanvas?.drawColor(0, PorterDuff.Mode.CLEAR)
+        clearPreview(null)
+    }
+
+    private fun clearPreview(bounds: RectF?) {
+        val canvas = previewCanvas ?: return
+        if (bounds == null || bounds.isEmpty) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR)
+            return
+        }
+
+        val saveCount = canvas.save()
+        canvas.clipRect(bounds)
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR)
+        canvas.restoreToCount(saveCount)
+    }
+
+    private fun updateLineDirtyBounds(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        brushSize: Float,
+        outBounds: RectF,
+    ) {
+        val pad = brushSize * 1.5f + 6f
+        outBounds.set(
+            minOf(startX, endX) - pad,
+            minOf(startY, endY) - pad,
+            maxOf(startX, endX) + pad,
+            maxOf(startY, endY) + pad,
+        )
+    }
+
+    private fun updatePathDirtyBounds(points: List<Pair<Float, Float>>, brushSize: Float, outBounds: RectF) {
+        if (points.isEmpty()) {
+            outBounds.setEmpty()
+            return
+        }
+
+        val pad = brushSize * 1.5f + 6f
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+
+        points.forEach { (x, y) ->
+            minX = minOf(minX, x)
+            minY = minOf(minY, y)
+            maxX = maxOf(maxX, x)
+            maxY = maxOf(maxY, y)
+        }
+
+        outBounds.set(minX - pad, minY - pad, maxX + pad, maxY + pad)
+    }
+
+    private fun invalidateCanvasBounds(bounds: RectF) {
+        if (bounds.isEmpty || width == 0 || height == 0) {
+            postInvalidateOnAnimation()
+            return
+        }
+
+        val left = ((bounds.left * viewportScale) + viewportPanX).toInt() - 4
+        val top = ((bounds.top * viewportScale) + viewportPanY).toInt() - 4
+        val right = ((bounds.right * viewportScale) + viewportPanX).toInt() + 4
+        val bottom = ((bounds.bottom * viewportScale) + viewportPanY).toInt() + 4
+
+        invalidateRect.set(
+            left.coerceIn(0, width),
+            top.coerceIn(0, height),
+            right.coerceIn(0, width),
+            bottom.coerceIn(0, height),
+        )
+
+        if (invalidateRect.isEmpty) {
+            postInvalidateOnAnimation()
+        } else {
+            postInvalidateOnAnimation(
+                invalidateRect.left,
+                invalidateRect.top,
+                invalidateRect.right,
+                invalidateRect.bottom,
+            )
+        }
     }
 
     private fun handleTransformPan(event: MotionEvent) {

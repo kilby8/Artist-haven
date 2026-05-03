@@ -77,7 +77,10 @@ fun DrawingScreen(
             onZoomIn = { canvasView?.zoomIn() },
             onZoomOut = { canvasView?.zoomOut() },
             onResetZoom = { canvasView?.resetZoom() },
-            onResetCanvas = { viewModel.clearActiveLayer() },
+            onResetCanvas = {
+                viewModel.clearActiveLayer()
+                canvasView?.invalidate()
+            },
             onExport = { viewModel.exportAsPng() },
             onToggleCanvasSelector = { viewModel.toggleCanvasTypeSelector() },
             modifier = Modifier

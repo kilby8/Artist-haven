@@ -5,8 +5,6 @@ import android.os.HandlerThread
 import android.os.Looper
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.StrokePoint
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 /**
  * Dedicated background thread for heavy stroke computation.
@@ -42,6 +40,7 @@ class StrokeComputeThread(
         val width: Float,
         val alpha: Float,
         val angleDeg: Float,
+        val timestamp: Long,
     )
 
     /**
@@ -59,7 +58,7 @@ class StrokeComputeThread(
                 val spline = masterBrush.catmullRomSplinePublic(samples)
 
                 // Compute all stamp positions on this background thread
-                val stampPositions = computeStampPositions(spline, brush, samples)
+                val stampPositions = computeStampPositions(spline, brush)
                 val predictedPath = spline.map { it.x to it.y }
 
                 val result = PrecomputedStroke(stampPositions, predictedPath)
@@ -84,7 +83,7 @@ class StrokeComputeThread(
         val samples = points.map { MasterPaintBrush.MasterSample(it.x, it.y, it.pressure.coerceIn(0f, 1f), it.timestamp) }
         val spline = masterBrush.catmullRomSplinePublic(samples)
 
-        val stampPositions = computeStampPositions(spline, brush, samples)
+        val stampPositions = computeStampPositions(spline, brush)
         val predictedPath = spline.map { it.x to it.y }
 
         return PrecomputedStroke(stampPositions, predictedPath)
@@ -93,7 +92,6 @@ class StrokeComputeThread(
     private fun computeStampPositions(
         spline: List<MasterPaintBrush.MasterSample>,
         brush: Brush,
-        originalSamples: List<MasterPaintBrush.MasterSample>,
     ): List<StampPosition> {
         val positions = mutableListOf<StampPosition>()
         if (spline.size < 2) return positions
@@ -136,6 +134,7 @@ class StrokeComputeThread(
                         width = width,
                         alpha = alpha,
                         angleDeg = angleDeg,
+                        timestamp = lerp(a.t.toFloat(), b.t.toFloat(), t).toLong(),
                     )
                 )
             }
