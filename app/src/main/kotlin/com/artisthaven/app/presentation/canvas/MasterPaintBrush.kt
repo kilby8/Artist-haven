@@ -251,6 +251,11 @@ class MasterPaintBrush(
     }
 
     private fun catmullRomSpline(points: List<MasterSample>, stepsPerSegment: Int = 8): List<MasterSample> {
+        return catmullRomSplinePublic(points, stepsPerSegment)
+    }
+
+    // Public version for use by StrokeComputeThread during off-main-thread calculations
+    fun catmullRomSplinePublic(points: List<MasterSample>, stepsPerSegment: Int = 8): List<MasterSample> {
         if (points.size < 2) return points
         val out = ArrayList<MasterSample>(points.size * stepsPerSegment)
 
@@ -358,7 +363,7 @@ class MasterPaintBrush(
         return bmp
     }
 
-    private data class MasterSample(
+    data class MasterSample(
         val x: Float,
         val y: Float,
         val pressure: Float,

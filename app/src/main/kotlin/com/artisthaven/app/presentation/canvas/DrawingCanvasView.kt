@@ -14,7 +14,6 @@ import android.view.ViewConfiguration
 import com.artisthaven.app.domain.model.Brush
 import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.StrokePoint
-import com.artisthaven.app.presentation.canvas.shaders.BrushShaderFactory
 import java.util.UUID
 
 
@@ -55,7 +54,6 @@ class DrawingCanvasView(context: Context) : View(context) {
     var onSizeAvailable: ((width: Int, height: Int) -> Unit)? = null
     var getLayerBitmaps: (() -> List<Pair<Bitmap, Float>>)? = null
     var getActiveBrush: (() -> Brush)? = null
-    var getActiveLayerBitmap: (() -> Bitmap?)? = null
     var getCanvasRenderingManager: (() -> CanvasRenderingManager)? = null
 
     private val currentStrokePoints = mutableListOf<StrokePoint>()
@@ -65,7 +63,13 @@ class DrawingCanvasView(context: Context) : View(context) {
 
     private var previewBitmap: Bitmap? = null
     private var previewCanvas: AndroidCanvas? = null
-    private val previewPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+    private val layerPaint = AndroidPaint()
+
+    // Zero-Latency Engine Components
+    private var strokeComputeThread: StrokeComputeThread? = null
+    private val predictionRenderer = PredictionRenderer()
+    private var renderNodeCache: RenderNodeStrokeCache? = null
+    private var previewComputationGeneration = 0L
 
     // Minimum pixel distance the pointer must travel before a stroke begins.
     // Prevents single-tap jitter from creating unwanted micro-strokes.
@@ -83,7 +87,6 @@ class DrawingCanvasView(context: Context) : View(context) {
     private var lastGestureFocusX = 0f
     private var lastGestureFocusY = 0f
     private var isTransformGesture = false
-    private val brushEngine = BrushEngine(context)
 
     private val scaleGestureDetector = ScaleGestureDetector(
         context,
@@ -116,13 +119,6 @@ class DrawingCanvasView(context: Context) : View(context) {
         }
     )
 
-    // AGSL RuntimeShader factory for organic brush textures on Android 13+ (API 33).
-    // @SuppressLint("NewApi") is safe here — instantiation is guarded by the SDK_INT check.
-    @SuppressLint("NewApi")
-    private val shaderFactory: BrushShaderFactory? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) BrushShaderFactory()
-        else null
-
     init {
         // Hardware layer type delegates compositing to the GPU — essential for low-latency
         // stroke rendering on pen-input tablets running at 120 Hz.
@@ -134,6 +130,15 @@ class DrawingCanvasView(context: Context) : View(context) {
         previewBitmap?.recycle()
         previewBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         previewCanvas = AndroidCanvas(previewBitmap!!)
+
+        // Initialize zero-latency components
+        if (strokeComputeThread == null) {
+            strokeComputeThread = StrokeComputeThread(MasterPaintBrush(context))
+        }
+        if (renderNodeCache == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            renderNodeCache = RenderNodeStrokeCache(w, h)
+        }
+
         onSizeAvailable?.invoke(w, h)
     }
 
@@ -147,10 +152,14 @@ class DrawingCanvasView(context: Context) : View(context) {
         // Render canvas background first (texture, tooth, lighting)
         getCanvasRenderingManager?.invoke()?.renderBackground(canvas)
 
+        // Replay any cached RenderNode segments (zero-latency optimization)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            renderNodeCache?.replayCachedSegments(canvas)
+        }
+
         getLayerBitmaps?.invoke()?.forEach { (bitmap, opacity) ->
-            val paint = AndroidPaint()
-            paint.alpha = (opacity * 255).toInt()
-            canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            layerPaint.alpha = (opacity * 255).toInt()
+            canvas.drawBitmap(bitmap, 0f, 0f, layerPaint)
         }
 
         previewBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -170,6 +179,11 @@ class DrawingCanvasView(context: Context) : View(context) {
         viewportPanX = 0f
         viewportPanY = 0f
         invalidate()
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -217,6 +231,9 @@ class DrawingCanvasView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!strokeStarted && event.actionMasked == MotionEvent.ACTION_UP) {
+                    performClick()
+                }
                 finishStroke(brush)
                 return true
             }
@@ -249,6 +266,7 @@ class DrawingCanvasView(context: Context) : View(context) {
         currentStrokeId = UUID.randomUUID().toString()
         currentStrokePoints.clear()
         lastPreviewRenderIndex = 0  // Reset preview render tracking
+        previewComputationGeneration++
         clearPreview()
         addCurrentPoint(event)
     }
@@ -258,11 +276,9 @@ class DrawingCanvasView(context: Context) : View(context) {
         // getHistoricalAxisValue reads the tilt for the specific historical sample —
         // using getAxisValue here would incorrectly read the *current* event's tilt.
         // AXIS_TILT is in radians (0 = perpendicular, π/2 = flat against screen).
-        val tiltDeg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            Math.toDegrees(
-                event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, 0, historyIndex).toDouble()
-            ).toFloat()
-        else 0f
+        val tiltDeg = Math.toDegrees(
+            event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, 0, historyIndex).toDouble()
+        ).toFloat()
 
         currentStrokePoints.add(
             StrokePoint(
@@ -278,9 +294,7 @@ class DrawingCanvasView(context: Context) : View(context) {
     private fun addCurrentPoint(event: MotionEvent) {
         val pressure = event.pressure.coerceIn(0f, 1f)
         // AXIS_TILT is in radians (0 = perpendicular, π/2 = flat against screen).
-        val tiltDeg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            Math.toDegrees(event.getAxisValue(MotionEvent.AXIS_TILT).toDouble()).toFloat()
-        else 0f
+        val tiltDeg = Math.toDegrees(event.getAxisValue(MotionEvent.AXIS_TILT).toDouble()).toFloat()
 
         currentStrokePoints.add(
             StrokePoint(
@@ -298,27 +312,48 @@ class DrawingCanvasView(context: Context) : View(context) {
         val points = currentStrokePoints
         if (points.isEmpty()) return
 
-        // Optimization: Only render the new points since the last update instead of redrawing
-        // the entire stroke. This reduces frame-time significantly on lower-end devices.
-        val pointsToRender = if (lastPreviewRenderIndex > 0 && lastPreviewRenderIndex < points.size) {
-            // Incremental render: only the new points
-            points.subList(lastPreviewRenderIndex.coerceAtLeast(0), points.size)
-        } else {
-            // Full render on first update or if index is out of bounds
-            clearPreview()
-            points
+        // Front-Buffer Prediction: Draw instant feedback line while compute catches up
+        if (points.size >= 2) {
+            val lastPoint = points[points.size - 2]
+            val currPoint = points[points.size - 1]
+            predictionRenderer.renderPredictionLine(
+                canvas = canvas,
+                lastX = lastPoint.x,
+                lastY = lastPoint.y,
+                currentX = currPoint.x,
+                currentY = currPoint.y,
+                brush = brush,
+            )
         }
 
-        if (pointsToRender.isNotEmpty()) {
-            brushEngine.renderStroke(
-                canvas = canvas,
-                points = pointsToRender,
+        // Off-Main-Thread Computation: Asynchronously compute high-fidelity stamps on background thread
+        if (lastPreviewRenderIndex < points.size - 1) {
+            val generation = ++previewComputationGeneration
+            strokeComputeThread?.computeStrokeAsync(
+                points = points,
                 brush = brush,
-                isPreview = true,
+                onComplete = { precomputed ->
+                    if (generation != previewComputationGeneration || !isDrawing) return@computeStrokeAsync
+                    applyPrecomputedPreview(precomputed, brush)
+                }
             )
             lastPreviewRenderIndex = points.size
         }
 
+        postInvalidateOnAnimation()
+    }
+
+    /**
+     * Apply precomputed stamp positions directly to the layer bitmap.
+     * This runs on the main thread but the heavy lifting was done by StrokeComputeThread.
+     */
+    private fun applyPrecomputedPreview(
+        precomputed: StrokeComputeThread.PrecomputedStroke,
+        brush: Brush,
+    ) {
+        val canvas = previewCanvas ?: return
+        clearPreview()
+        predictionRenderer.renderPredictionCurve(canvas, precomputed.predictedPath, brush)
         postInvalidateOnAnimation()
     }
 
@@ -330,6 +365,12 @@ class DrawingCanvasView(context: Context) : View(context) {
         val points = currentStrokePoints.toList()
         currentStrokePoints.clear()
         lastPreviewRenderIndex = 0  // Reset preview render tracking
+        previewComputationGeneration++
+
+        // Clear RenderNode cache for finished stroke
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            renderNodeCache?.clearAllCaches()
+        }
         clearPreview()
 
         if (points.isNotEmpty()) {
@@ -343,6 +384,17 @@ class DrawingCanvasView(context: Context) : View(context) {
         }
 
         invalidate()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // Clean up background compute thread
+        strokeComputeThread?.release()
+        strokeComputeThread = null
+        // Clean up bitmaps
+        previewBitmap?.recycle()
+        previewBitmap = null
+        previewCanvas = null
     }
 
     private fun clearPreview() {
@@ -431,12 +483,4 @@ class DrawingCanvasView(context: Context) : View(context) {
     private fun screenToCanvasX(screenX: Float): Float = (screenX - viewportPanX) / viewportScale
 
     private fun screenToCanvasY(screenY: Float): Float = (screenY - viewportPanY) / viewportScale
-
-
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        previewBitmap?.recycle()
-        previewBitmap = null
-        previewCanvas = null
-    }
 }

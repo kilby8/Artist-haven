@@ -4,10 +4,11 @@
 /.idea
 .DS_Store
 /build
+/app/build
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+/\.gradle-user-home
 
-# Exception: Allow APK files for distribution
-!app/build/outputs/apk/debug/app-debug.apk
+# APKs intended for distribution are published under docs/downloads/
