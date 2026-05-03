@@ -26,21 +26,34 @@ class APKServerHandler(http.server.SimpleHTTPRequestHandler):
 
         # Handle APK download
         if file_path.startswith('apk/') or file_path.endswith('.apk'):
-            apk_full_path = os.path.join(DOCUMENT_ROOT, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
+            requested_apk = os.path.join(DOCUMENT_ROOT, file_path)
+            fallback_apk = os.path.join(DOCUMENT_ROOT, 'docs', 'downloads', 'Artist-Haven-debug.apk')
 
-            if os.path.exists(apk_full_path):
-                self.send_response(200)
-                self.send_header('Content-type', 'application/vnd.android.package-archive')
-                self.send_header('Content-Length', os.path.getsize(apk_full_path))
-                self.send_header('Content-Disposition', f'attachment; filename="Artist-Haven-v1.0.apk"')
-                self.end_headers()
+            candidate_paths = [requested_apk, fallback_apk]
+            apk_full_path = None
+            for candidate in candidate_paths:
+                abs_candidate = os.path.abspath(candidate)
+                if not abs_candidate.startswith(os.path.abspath(DOCUMENT_ROOT)):
+                    continue
+                if os.path.exists(abs_candidate):
+                    apk_full_path = abs_candidate
+                    break
 
-                with open(apk_full_path, 'rb') as f:
-                    self.wfile.write(f.read())
+            if apk_full_path is None:
+                self.send_error(404, f'APK not found for request: {file_path}')
                 return
-            else:
-                self.send_error(404, f'APK not found at {apk_full_path}')
-                return
+
+            apk_name = os.path.basename(apk_full_path)
+            self.send_response(200)
+            self.send_header('Content-type', 'application/vnd.android.package-archive')
+            self.send_header('Content-Length', os.path.getsize(apk_full_path))
+            self.send_header('Content-Disposition', f'attachment; filename="{apk_name}"')
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            self.end_headers()
+
+            with open(apk_full_path, 'rb') as f:
+                self.wfile.write(f.read())
+            return
 
         # Serve the HTML file
         if file_path == '' or file_path == '/':

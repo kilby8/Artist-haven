@@ -1,7 +1,6 @@
 package com.artisthaven.app.presentation.canvas
 
 import android.graphics.Canvas as AndroidCanvas
-import android.graphics.PorterDuff
 import androidx.compose.ui.graphics.Color
 import com.artisthaven.app.domain.model.CanvasLayerConfig
 import com.artisthaven.app.domain.model.CanvasType

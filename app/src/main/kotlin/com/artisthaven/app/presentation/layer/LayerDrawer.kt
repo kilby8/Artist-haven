@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.artisthaven.app.domain.model.Layer
+import kotlinx.coroutines.delay
 
 /**
  * Layer management drawer composable.
@@ -32,8 +33,19 @@ fun LayerDrawer(
     onLayerAdded: () -> Unit,
     onLayerDeleted: (String) -> Unit,
     onLayerOpacityChanged: (String, Float) -> Unit,
+    onClose: () -> Unit = {},
+    autoHideSeconds: Int = 12,
     modifier: Modifier = Modifier,
 ) {
+    var interactionTick by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(interactionTick) {
+        delay(autoHideSeconds * 1_000L)
+        onClose()
+    }
+
+    fun touched() { interactionTick++ }
+
     Column(
         modifier = modifier
             .width(200.dp)
@@ -55,7 +67,17 @@ fun LayerDrawer(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             IconButton(
-                onClick = onLayerAdded,
+                onClick = onClose,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close layers",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(
+                onClick = { touched(); onLayerAdded() },
                 modifier = Modifier.size(32.dp),
             ) {
                 Icon(
@@ -77,10 +99,12 @@ fun LayerDrawer(
                 LayerItem(
                     layer = layer,
                     isActive = index == activeLayerIndex,
-                    onClick = { onLayerSelected(index) },
-                    onVisibilityToggled = { onLayerVisibilityToggled(layer.id) },
-                    onOpacityChanged = { opacity -> onLayerOpacityChanged(layer.id, opacity) },
+                    onClick = { touched(); onLayerSelected(index) },
+                    onVisibilityToggled = { touched(); onLayerVisibilityToggled(layer.id) },
+                    onOpacityChanged = { opacity -> touched(); onLayerOpacityChanged(layer.id, opacity) },
+                    onInteracted = { touched() },
                     onDelete = {
+                        touched()
                         if (layers.size > 1) onLayerDeleted(layer.id)
                     },
                 )
@@ -96,6 +120,7 @@ private fun LayerItem(
     onClick: () -> Unit,
     onVisibilityToggled: () -> Unit,
     onOpacityChanged: (Float) -> Unit,
+    onInteracted: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var showOpacitySlider by remember { mutableStateOf(false) }
@@ -145,7 +170,7 @@ private fun LayerItem(
             )
 
             IconButton(
-                onClick = { showOpacitySlider = !showOpacitySlider },
+                onClick = { onInteracted(); showOpacitySlider = !showOpacitySlider },
                 modifier = Modifier.size(28.dp),
             ) {
                 Icon(

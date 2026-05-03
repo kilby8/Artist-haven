@@ -2,10 +2,32 @@
 # Usage: Open PowerShell as the user and run this from repo root:
 #   .\scripts\install-apk-bluestacks.ps1
 
-$apkPath = Join-Path -Path $PSScriptRoot -ChildPath "..\app\build\outputs\apk\debug\app-debug.apk"
-$apkPath = (Resolve-Path $apkPath -ErrorAction SilentlyContinue)
+$repoRoot = Resolve-Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
+$latestJsonPath = Join-Path $repoRoot "docs\downloads\latest.json"
+
+$apkPath = $null
+if (Test-Path $latestJsonPath) {
+    try {
+        $latest = Get-Content $latestJsonPath -Raw | ConvertFrom-Json
+        $candidate = Join-Path $repoRoot ("docs\\downloads\\" + $latest.file)
+        $apkPath = Resolve-Path $candidate -ErrorAction SilentlyContinue
+    } catch {
+        # Ignore malformed metadata and continue to fallback locations.
+    }
+}
+
 if (-not $apkPath) {
-    Write-Host "APK not found. Build the project first: .\gradlew.bat :app:assembleDebug" -ForegroundColor Yellow
+    $legacyPublished = Join-Path $repoRoot "docs\downloads\Artist-Haven-debug.apk"
+    $apkPath = Resolve-Path $legacyPublished -ErrorAction SilentlyContinue
+}
+
+if (-not $apkPath) {
+    $buildOutput = Join-Path $repoRoot "app\build\outputs\apk\debug\app-debug.apk"
+    $apkPath = Resolve-Path $buildOutput -ErrorAction SilentlyContinue
+}
+
+if (-not $apkPath) {
+    Write-Host "APK not found. Publish first: .\scripts\publish-versioned-apk.ps1" -ForegroundColor Yellow
     exit 1
 }
 

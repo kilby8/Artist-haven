@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.artisthaven.app.BuildConfig
 import com.artisthaven.app.presentation.brush.BrushSidebar
 import com.artisthaven.app.presentation.brush.library.BrushPaletteDialog
 import com.artisthaven.app.presentation.layer.LayerDrawer
@@ -46,6 +49,22 @@ fun DrawingScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
+        if (uiState.isBrushSidebarOpen || uiState.isLayerDrawerOpen) {
+            val dismissInteractionSource = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.10f))
+                    .clickable(
+                        interactionSource = dismissInteractionSource,
+                        indication = null,
+                    ) {
+                        viewModel.closeBrushSidebar()
+                        viewModel.closeLayerDrawer()
+                    },
+            )
+        }
+
         DrawingToolbar(
             uiState = uiState,
             onUndo = { viewModel.undo() },
@@ -59,6 +78,7 @@ fun DrawingScreen(
             onZoomOut = { canvasView?.zoomOut() },
             onResetZoom = { canvasView?.resetZoom() },
             onExport = { viewModel.exportAsPng() },
+            onToggleCanvasSelector = { viewModel.toggleCanvasTypeSelector() },
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter),
@@ -91,6 +111,13 @@ fun DrawingScreen(
                 onGrainStrengthChanged = { viewModel.updateGrainStrength(it) },
                 onTipSpacingChanged = { viewModel.updateTipSpacing(it) },
                 onTipJitterChanged = { viewModel.updateTipJitter(it) },
+                onTipOverlapFactorChanged = { viewModel.updateTipOverlapFactor(it) },
+                onTipAlphaSmoothingChanged = { viewModel.updateTipAlphaSmoothing(it) },
+                onTipMicroDabToggled = { viewModel.updateTipMicroDabEnabled(it) },
+                onTipMinGapClampingChanged = { viewModel.updateTipMinGapClamping(it) },
+                onFluidJitterPercentChanged = { viewModel.updateFluidJitterPercent(it) },
+                onFluidAccumulationAlphaChanged = { viewModel.updateFluidAccumulationAlpha(it) },
+                onFluidVelocitySpacingTighteningChanged = { viewModel.updateFluidVelocitySpacingTightening(it) },
                 onEdgeSoftnessChanged = { viewModel.updateEdgeSoftness(it) },
                 onCornerSmoothingChanged = { viewModel.updateCornerSmoothing(it) },
                 onSaveColor = { viewModel.saveColor(it) },
@@ -100,6 +127,27 @@ fun DrawingScreen(
                 onDeletePreset = { viewModel.deleteBrushPreset(it) },
                 onOpenBrushLibrary = { viewModel.toggleBrushLibrary() },
                 onClose = { viewModel.toggleBrushSidebar() },
+            )
+        }
+
+        if (uiState.isCanvasTypeSelectorOpen) {
+            AlertDialog(
+                onDismissRequest = { viewModel.closeCanvasTypeSelector() },
+                title = { Text("Canvas Type") },
+                text = {
+                    CanvasTypeSelector(
+                        selectedCanvasType = uiState.canvasType,
+                        onCanvasTypeSelected = { canvasType ->
+                            viewModel.setCanvasType(canvasType)
+                            viewModel.closeCanvasTypeSelector()
+                        },
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.closeCanvasTypeSelector() }) {
+                        Text("Done")
+                    }
+                },
             )
         }
 
@@ -117,6 +165,7 @@ fun DrawingScreen(
                 onLayerAdded = { viewModel.addLayer() },
                 onLayerDeleted = { viewModel.deleteLayer(it) },
                 onLayerOpacityChanged = { layerId, opacity -> viewModel.updateLayerOpacity(layerId, opacity) },
+                onClose = { viewModel.closeLayerDrawer() },
             )
         }
 
@@ -196,6 +245,7 @@ private fun DrawingCanvasArea(
                 onStrokeCommitted = { stroke ->
                     viewModel.commitStroke(stroke)
                 }
+                getCanvasRenderingManager = { viewModel.getCanvasRenderingManager() }
             }
         },
         update = { view ->
@@ -231,17 +281,25 @@ private fun DrawingToolbar(
     onZoomOut: () -> Unit,
     onResetZoom: () -> Unit,
     onExport: () -> Unit,
+    onToggleCanvasSelector: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showOverflow by remember { mutableStateOf(false) }
 
     TopAppBar(
         title = {
-            Text(
-                text = uiState.project?.name ?: "Artist Haven",
-                style = MaterialTheme.typography.titleMedium,
-                fontSize = 14.sp,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = uiState.project?.name ?: "Artist Haven",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 14.sp,
+                )
+                Text(
+                    text = "Build ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
         navigationIcon = {
             // Brush icon — opens brush sidebar
@@ -251,6 +309,13 @@ private fun DrawingToolbar(
         },
         actions = {
             // Primary actions always visible
+            FilledTonalButton(
+                onClick = onToggleCanvasSelector,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(36.dp),
+            ) {
+                Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
             IconButton(onClick = onUndo, enabled = uiState.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
             }
@@ -270,6 +335,12 @@ private fun DrawingToolbar(
                     onDismissRequest = { showOverflow = false },
                 ) {
                     DropdownMenuItem(
+                        text = { Text("Build ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") },
+                        enabled = false,
+                        onClick = {},
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
                         text = { Text("Rename project") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                         onClick = { showOverflow = false; onEditProjectName() },
@@ -283,6 +354,11 @@ private fun DrawingToolbar(
                         text = { Text("Load project") },
                         leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
                         onClick = { showOverflow = false; onLoad() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Canvas Type") },
+                        leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null) },
+                        onClick = { showOverflow = false; onToggleCanvasSelector() },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(

@@ -38,12 +38,12 @@ if not "%1"=="" (
     set PORT=%1
 )
 
-echo 📋 Step 1: Building Release APK...
+echo 📋 Step 1: Publishing latest versioned APK...
 echo.
-call gradlew.bat assembleRelease
+powershell -ExecutionPolicy Bypass -File ".\scripts\publish-versioned-apk.ps1"
 if errorlevel 1 (
     echo.
-    echo ❌ Build failed. Please check the errors above.
+    echo ❌ Publish failed. Please check the errors above.
     pause
     exit /b 1
 )
@@ -53,7 +53,7 @@ echo ✓ APK built successfully!
 echo.
 
 REM Check if APK exists
-set APK_PATH=app\build\outputs\apk\release\app-release.apk
+set APK_PATH=docs\downloads\Artist-Haven-debug.apk
 if not exist "%APK_PATH%" (
     echo ❌ Error: APK not found at %APK_PATH%
     pause
@@ -61,7 +61,7 @@ if not exist "%APK_PATH%" (
 )
 
 REM Get file size
-for /F %%A in ('dir "%APK_PATH%" ^| find "app-release.apk"') do (
+for /F %%A in ('dir "%APK_PATH%" ^| find "Artist-Haven-debug.apk"') do (
     echo 📦 APK ready: %%A
 )
 

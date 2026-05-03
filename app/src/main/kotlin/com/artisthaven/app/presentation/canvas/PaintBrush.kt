@@ -34,7 +34,7 @@ import kotlin.math.pow
  * - Hardware render path via RenderNode when available
  * - Wet blending via DARKEN / SRC_ATOP / MULTIPLY / etc.
  */
-class MasterPaintBrush(
+class PaintBrush(
     private val context: Context,
 ) {
     private val bristleBitmap: Bitmap by lazy { createBristleTipBitmap(80) }
@@ -190,7 +190,7 @@ class MasterPaintBrush(
         // Wet edge pass: blur only edge layer for liquid feathering.
         if (brush.profile.edge.softness > 0.01f) {
             val edgePaint = Paint(paint).apply {
-                alpha = (alpha * 0.35f).toInt().coerceIn(0, 255)
+                this.alpha = (alpha * 0.35f).toInt().coerceIn(0, 255)
                 maskFilter = BlurMaskFilter(width * brush.profile.edge.softness, BlurMaskFilter.Blur.NORMAL)
                 xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
             }
@@ -211,7 +211,242 @@ class MasterPaintBrush(
         // Optional wet-mix glaze pass for DARKEN/SRC_ATOP/MULTIPLY styles.
         if (wetBlend != PorterDuff.Mode.SRC_OVER) {
             val glazePaint = Paint(paint).apply {
-                alpha = (alpha * 0.45f).toInt().coerceIn(0, 255)
+
+                this.alpha = (alpha * 0.45f).toInt().coerceIn(0, 255)
+                xfermode = PorterDuffXfermode(wetBlend)
+                maskFilter = null
+            }
+            canvas.drawCircle(x, y, r, glazePaint)
+        }
+    }
+
+    /**
+     * Render a stroke with canvas tooth interaction enabled.
+     *
+     * Uses PorterDuff.Mode.DST_IN to mask strokes through canvas texture.
+     * Light pressure fills only the peaks of the paper texture, leaving valleys white
+     * (or transparent, depending on the canvas type).
+     * This creates the dry-brush effect seen in Adobe Fresco.
+     *
+     * @param canvas Target canvas
+     * @param points Stroke points
+     * @param brush Brush configuration
+     * @param canvasTexture Bitmap to use as tooth mask (optional)
+     * @param toothIntensity How strongly the texture affects brush strokes (0f - 1f)
+     */
+    fun renderStrokeWithToothInteraction(
+        canvas: Canvas,
+        points: List<StrokePoint>,
+        brush: Brush,
+        canvasTexture: Bitmap? = null,
+        toothIntensity: Float = 0.35f,
+    ) {
+        if (points.isEmpty()) return
+
+        val samples = points.map { MasterSample(it.x, it.y, it.pressure.coerceIn(0f, 1f), it.timestamp) }
+        val spline = catmullRomSpline(samples)
+        if (spline.size < 2) {
+            drawSingleStampWithTooth(canvas, samples.first(), brush, canvasTexture, toothIntensity)
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && canvas.isHardwareAccelerated) {
+            val node = RenderNode("PaintBrushWithTooth").apply {
+                setPosition(0, 0, max(1, canvas.width), max(1, canvas.height))
+            }
+            val rc = node.beginRecording(max(1, canvas.width), max(1, canvas.height))
+            drawStampLoopWithTooth(rc, spline, brush, canvasTexture, toothIntensity)
+            node.endRecording()
+            canvas.drawRenderNode(node)
+        } else {
+            drawStampLoopWithTooth(canvas, spline, brush, canvasTexture, toothIntensity)
+        }
+    }
+
+    private fun drawStampLoopWithTooth(
+        canvas: Canvas,
+        spline: List<MasterSample>,
+        brush: Brush,
+        canvasTexture: Bitmap?,
+        toothIntensity: Float,
+    ) {
+        val spacingPx = max(0.8f, brush.size * 0.02f)
+        val wetBlend = toPorterDuffMode(brush.profile.blend)
+
+        val tipTile = if (brush.profile.grain.enabled) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP
+        val tipShader = BitmapShader(bristleBitmap, tipTile, tipTile)
+        val grainShader = BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        val dualShader = ComposeShader(tipShader, grainShader, PorterDuff.Mode.MULTIPLY)
+
+        val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            isFilterBitmap = true
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
+            colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+            shader = dualShader
+        }
+
+        // Tooth interaction shader
+        val toothShader = if (canvasTexture != null) {
+            BitmapShader(canvasTexture, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        } else {
+            null
+        }
+
+        var carry = 0f
+        for (i in 1 until spline.size) {
+            val a = spline[i - 1]
+            val b = spline[i]
+            val segLen = hypot(b.x - a.x, b.y - a.y)
+            if (segLen <= 0.01f) continue
+
+            val dt = max(1f, (b.t - a.t).toFloat())
+            val velocity = segLen / dt
+            val dynamics = dynamics(brush, pressure = b.pressure, velocity = velocity)
+
+            stampPaint.maskFilter = if (brush.profile.edge.softness > 0.01f) {
+                BlurMaskFilter(dynamics.width * brush.profile.edge.softness, BlurMaskFilter.Blur.NORMAL)
+            } else {
+                null
+            }
+
+            var consumed = carry
+            while (consumed + spacingPx <= segLen) {
+                consumed += spacingPx
+                val t = (consumed / segLen).coerceIn(0f, 1f)
+                val x = lerp(a.x, b.x, t)
+                val y = lerp(a.y, b.y, t)
+                val tangentX = b.x - a.x
+                val tangentY = b.y - a.y
+                val angleDeg = Math.toDegrees(kotlin.math.atan2(tangentY.toDouble(), tangentX.toDouble())).toFloat()
+
+                drawStampAtWithTooth(
+                    canvas = canvas,
+                    paint = stampPaint,
+                    tipShader = tipShader,
+                    grainShader = grainShader,
+                    toothShader = toothShader,
+                    brush = brush,
+                    x = x,
+                    y = y,
+                    width = dynamics.width,
+                    alpha = dynamics.alpha,
+                    angleDeg = angleDeg,
+                    wetBlend = wetBlend,
+                    toothIntensity = toothIntensity,
+                )
+            }
+            carry = max(0f, consumed - segLen)
+        }
+    }
+
+    private fun drawSingleStampWithTooth(
+        canvas: Canvas,
+        sample: MasterSample,
+        brush: Brush,
+        canvasTexture: Bitmap?,
+        toothIntensity: Float,
+    ) {
+        val tipShader = BitmapShader(bristleBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        val grainShader = BitmapShader(paperBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = ComposeShader(tipShader, grainShader, PorterDuff.Mode.MULTIPLY)
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
+            colorFilter = PorterDuffColorFilter(brush.color.toArgb(), PorterDuff.Mode.SRC_ATOP)
+        }
+        val dyn = dynamics(brush, sample.pressure, velocity = 0f)
+
+        val toothShader = if (canvasTexture != null) {
+            BitmapShader(canvasTexture, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        } else {
+            null
+        }
+
+        drawStampAtWithTooth(
+            canvas,
+            paint,
+            tipShader,
+            grainShader,
+            toothShader,
+            brush,
+            sample.x,
+            sample.y,
+            dyn.width,
+            dyn.alpha,
+            0f,
+            toPorterDuffMode(brush.profile.blend),
+            toothIntensity,
+        )
+    }
+
+    private fun drawStampAtWithTooth(
+        canvas: Canvas,
+        paint: Paint,
+        tipShader: BitmapShader,
+        grainShader: BitmapShader,
+        toothShader: BitmapShader?,
+        brush: Brush,
+        x: Float,
+        y: Float,
+        width: Float,
+        alpha: Int,
+        angleDeg: Float,
+        wetBlend: PorterDuff.Mode,
+        toothIntensity: Float,
+    ) {
+        paint.alpha = alpha
+
+        val tipScale = max(0.08f, width / bristleBitmap.width)
+        tipShaderMatrix.reset()
+        tipShaderMatrix.postScale(tipScale, tipScale)
+        tipShaderMatrix.postRotate(angleDeg, bristleBitmap.width * tipScale * 0.5f, bristleBitmap.height * tipScale * 0.5f)
+        tipShaderMatrix.postTranslate(x - bristleBitmap.width * tipScale * 0.5f, y - bristleBitmap.height * tipScale * 0.5f)
+        tipShader.setLocalMatrix(tipShaderMatrix)
+
+        val grainScale = brush.profile.grain.scale.coerceIn(0.2f, 4f)
+        grainShaderMatrix.reset()
+        grainShaderMatrix.postScale(grainScale, grainScale)
+        grainShader.setLocalMatrix(grainShaderMatrix)
+
+        val r = max(0.35f, width * 0.5f)
+
+        // Soft edge pass
+        if (brush.profile.edge.softness > 0.01f) {
+            val edgePaint = Paint(paint).apply {
+                this.alpha = (alpha * 0.35f).toInt().coerceIn(0, 255)
+                maskFilter = BlurMaskFilter(width * brush.profile.edge.softness, BlurMaskFilter.Blur.NORMAL)
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
+            }
+            canvas.drawCircle(x, y, r * 1.08f, edgePaint)
+        }
+
+        // Core dab with optional tooth masking
+        if (brush.profile.tip.useBitmapStamp) {
+            val half = r
+            val dst = android.graphics.RectF(x - half, y - half, x + half, y + half)
+            paint.maskFilter = null
+            canvas.drawBitmap(bristleBitmap, null, dst, paint)
+        } else {
+            paint.maskFilter = null
+            canvas.drawCircle(x, y, r, paint)
+        }
+
+        // Tooth interaction: apply canvas texture mask for dry brush effect
+        if (toothShader != null && toothIntensity > 0.01f) {
+            val toothPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = toothShader
+                this.alpha = (alpha * toothIntensity).toInt().coerceIn(0, 255)
+                // DST_IN: keep only where mask is opaque
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+                isFilterBitmap = true
+            }
+            canvas.drawCircle(x, y, r, toothPaint)
+        }
+
+        // Wet-mix glaze pass
+        if (wetBlend != PorterDuff.Mode.SRC_OVER) {
+            val glazePaint = Paint(paint).apply {
+                this.alpha = (alpha * 0.45f).toInt().coerceIn(0, 255)
                 xfermode = PorterDuffXfermode(wetBlend)
                 maskFilter = null
             }
@@ -341,7 +576,5 @@ class MasterPaintBrush(
 
     private fun lerp(start: Float, end: Float, t: Float): Float = start + (end - start) * t
 }
-
-typealias MasterPaintBrush = PaintBrush
 
 

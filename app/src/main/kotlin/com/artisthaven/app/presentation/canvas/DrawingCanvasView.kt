@@ -56,6 +56,7 @@ class DrawingCanvasView(context: Context) : View(context) {
     var getLayerBitmaps: (() -> List<Pair<Bitmap, Float>>)? = null
     var getActiveBrush: (() -> Brush)? = null
     var getActiveLayerBitmap: (() -> Bitmap?)? = null
+    var getCanvasRenderingManager: (() -> CanvasRenderingManager)? = null
 
     private val currentStrokePoints = mutableListOf<StrokePoint>()
     private var currentStrokeId: String? = null
@@ -141,6 +142,9 @@ class DrawingCanvasView(context: Context) : View(context) {
         canvas.save()
         canvas.translate(viewportPanX, viewportPanY)
         canvas.scale(viewportScale, viewportScale)
+
+        // Render canvas background first (texture, tooth, lighting)
+        getCanvasRenderingManager?.invoke()?.renderBackground(canvas)
 
         getLayerBitmaps?.invoke()?.forEach { (bitmap, opacity) ->
             val paint = AndroidPaint()

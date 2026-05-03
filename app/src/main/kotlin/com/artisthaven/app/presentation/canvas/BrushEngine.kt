@@ -59,7 +59,7 @@ class BrushEngine(
 
         // Master stamp engine path for pro brushes. Eraser keeps direct clear behavior.
         if (brush.type != BrushType.ERASER) {
-            masterPaintBrush.renderStroke(canvas, points, brush)
+            masterPaintBrush.renderStroke(canvas, points, brush, isPreview)
             return
         }
 
@@ -354,6 +354,11 @@ class BrushEngine(
             edgeEffect += CornerPathEffect(profile.edge.cornerSmoothingPx)
         }
         paint.pathEffect = if (edgeEffect.isNotEmpty()) edgeEffect.first() else null
+
+        if (brush.type == BrushType.ERASER) {
+            paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+            return paint
+        }
 
         when (profile.blend) {
             BlendBehavior.NORMAL -> Unit

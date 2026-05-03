@@ -11,6 +11,7 @@ import com.artisthaven.app.domain.model.CanvasLayerConfig
 import com.artisthaven.app.domain.model.CanvasType
 import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.StrokePoint
+import com.artisthaven.app.presentation.canvas.texture.CanvasTextureFactory
 
 /**
  * Comprehensive example showing how to integrate the CanvasProvider system
@@ -50,7 +51,6 @@ class DrawingLayerWithCanvasExample(
             height = height,
             canvasType = currentCanvasType,
             enableToothInteraction = enableToothInteraction,
-            enableLighting = enableLighting,
         )
     }
 
@@ -225,7 +225,6 @@ class DrawingLayerWithCanvasExample(
      */
     fun clearLayer() {
         layerBitmap.eraseColor(0)  // Transparent
-        layerCanvas.nativeCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
     }
 
     /**

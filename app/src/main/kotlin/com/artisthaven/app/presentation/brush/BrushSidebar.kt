@@ -57,6 +57,13 @@ fun BrushSidebar(
     onGrainStrengthChanged: (Float) -> Unit = {},
     onTipSpacingChanged: (Float) -> Unit = {},
     onTipJitterChanged: (Float) -> Unit = {},
+    onTipOverlapFactorChanged: (Float) -> Unit = {},
+    onTipAlphaSmoothingChanged: (Float) -> Unit = {},
+    onTipMicroDabToggled: (Boolean) -> Unit = {},
+    onTipMinGapClampingChanged: (Float) -> Unit = {},
+    onFluidJitterPercentChanged: (Float) -> Unit = {},
+    onFluidAccumulationAlphaChanged: (Float) -> Unit = {},
+    onFluidVelocitySpacingTighteningChanged: (Float) -> Unit = {},
     onEdgeSoftnessChanged: (Float) -> Unit = {},
     onCornerSmoothingChanged: (Float) -> Unit = {},
     onSaveColor: (Color) -> Unit = {},
@@ -318,6 +325,7 @@ fun BrushSidebar(
     if (showProSettings) {
         BrushProSettingsDialog(
             style = activeBrushStyle,
+            brushType = activeBrush.type,
             profile = activeBrush.profile,
             onDismiss = { showProSettings = false },
             onDynamicsPowerCurveChanged = onDynamicsPowerCurveChanged,
@@ -325,6 +333,13 @@ fun BrushSidebar(
             onGrainStrengthChanged = onGrainStrengthChanged,
             onTipSpacingChanged = onTipSpacingChanged,
             onTipJitterChanged = onTipJitterChanged,
+            onTipOverlapFactorChanged = onTipOverlapFactorChanged,
+            onTipAlphaSmoothingChanged = onTipAlphaSmoothingChanged,
+            onTipMicroDabToggled = onTipMicroDabToggled,
+            onTipMinGapClampingChanged = onTipMinGapClampingChanged,
+            onFluidJitterPercentChanged = onFluidJitterPercentChanged,
+            onFluidAccumulationAlphaChanged = onFluidAccumulationAlphaChanged,
+            onFluidVelocitySpacingTighteningChanged = onFluidVelocitySpacingTighteningChanged,
             onEdgeSoftnessChanged = onEdgeSoftnessChanged,
             onCornerSmoothingChanged = onCornerSmoothingChanged,
         )
@@ -440,6 +455,7 @@ private fun brushTypeIcon(brushType: BrushType): ImageVector = when (brushType) 
 @Composable
 private fun BrushProSettingsDialog(
     style: BrushStyle,
+    brushType: BrushType,
     profile: BrushProfile,
     onDismiss: () -> Unit,
     onDynamicsPowerCurveChanged: (Float) -> Unit,
@@ -447,6 +463,13 @@ private fun BrushProSettingsDialog(
     onGrainStrengthChanged: (Float) -> Unit,
     onTipSpacingChanged: (Float) -> Unit,
     onTipJitterChanged: (Float) -> Unit,
+    onTipOverlapFactorChanged: (Float) -> Unit,
+    onTipAlphaSmoothingChanged: (Float) -> Unit,
+    onTipMicroDabToggled: (Boolean) -> Unit,
+    onTipMinGapClampingChanged: (Float) -> Unit,
+    onFluidJitterPercentChanged: (Float) -> Unit,
+    onFluidAccumulationAlphaChanged: (Float) -> Unit,
+    onFluidVelocitySpacingTighteningChanged: (Float) -> Unit,
     onEdgeSoftnessChanged: (Float) -> Unit,
     onCornerSmoothingChanged: (Float) -> Unit,
 ) {
@@ -473,6 +496,60 @@ private fun BrushProSettingsDialog(
                     range = 0f..28f,
                     onValueChange = onCornerSmoothingChanged,
                 )
+                if (brushType != BrushType.ERASER) {
+                    HorizontalDivider()
+                    Text("Artifact & Fluidity Tuning", style = MaterialTheme.typography.labelMedium)
+                    SettingSliderRow(
+                        label = "Fluid Jitter",
+                        value = profile.tip.fluidJitterPercent,
+                        range = 0f..0.12f,
+                        onValueChange = onFluidJitterPercentChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Fluid Accum",
+                        value = profile.tip.fluidAccumulationAlpha,
+                        range = 0.05f..0.35f,
+                        onValueChange = onFluidAccumulationAlphaChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Spacing Tighten",
+                        value = profile.tip.fluidVelocitySpacingTightening,
+                        range = 0f..0.8f,
+                        onValueChange = onFluidVelocitySpacingTighteningChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Overlap",
+                        value = profile.tip.overlapFactor,
+                        range = 0f..1f,
+                        onValueChange = onTipOverlapFactorChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Alpha Smooth",
+                        value = profile.tip.alphaSmoothing,
+                        range = 0.05f..0.35f,
+                        onValueChange = onTipAlphaSmoothingChanged,
+                    )
+                    SettingSliderRow(
+                        label = "Min Gap Clamp",
+                        value = profile.tip.minGapClamping,
+                        range = 0.25f..4f,
+                        onValueChange = onTipMinGapClampingChanged,
+                    )
+
+                    if (brushType == BrushType.WATERCOLOR) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("Micro-Dab", style = MaterialTheme.typography.labelSmall)
+                            Switch(
+                                checked = profile.tip.enableMicroDab || profile.tip.useMicroDabs,
+                                onCheckedChange = onTipMicroDabToggled,
+                            )
+                        }
+                    }
+                }
 
                 if (style == BrushStyle.TEXTURED_CHARCOAL) {
                     SettingSliderRow(

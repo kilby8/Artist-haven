@@ -12,12 +12,14 @@ import androidx.lifecycle.viewModelScope
 import com.artisthaven.app.domain.command.CommandHistory
 import com.artisthaven.app.domain.command.DrawingCommand
 import com.artisthaven.app.domain.model.Brush
+import com.artisthaven.app.domain.model.BlendBehavior
 import com.artisthaven.app.domain.model.BrushDefinition
 import com.artisthaven.app.domain.model.BrushLibrary
 import com.artisthaven.app.domain.model.BrushPreset
 import com.artisthaven.app.domain.model.BrushProfile
 import com.artisthaven.app.domain.model.BrushStyle
 import com.artisthaven.app.domain.model.BrushType
+import com.artisthaven.app.domain.model.CanvasType
 import com.artisthaven.app.domain.model.DrawingStroke
 import com.artisthaven.app.domain.model.Layer
 import com.artisthaven.app.domain.model.LayerBlendMode
@@ -61,6 +63,12 @@ data class CanvasUiState(
         BrushProfile.preset(style)
     },
     val brushPresets: List<BrushPreset> = emptyList(),
+    // Canvas system properties
+    val canvasType: CanvasType = CanvasType.COLD_PRESS_PAPER,
+    val enableToothInteraction: Boolean = true,
+    val enableLighting: Boolean = false,
+    val lightingIntensity: Float = 0.15f,
+    val isCanvasTypeSelectorOpen: Boolean = false,
 )
 
 data class SavedProjectItem(
@@ -87,6 +95,7 @@ class CanvasViewModel @Inject constructor(
 
     private val layerBitmaps = mutableMapOf<String, Bitmap>()
     private val brushEngine = BrushEngine(context)
+    private val canvasRenderingManager = CanvasRenderingManager()
 
     private var canvasWidth: Int = 0
     private var canvasHeight: Int = 0
@@ -125,6 +134,15 @@ class CanvasViewModel @Inject constructor(
         if (canvasWidth == width && canvasHeight == height) return
         canvasWidth = width
         canvasHeight = height
+
+        // Initialize canvas rendering system
+        canvasRenderingManager.initialize(
+            width = width,
+            height = height,
+            canvasType = _uiState.value.canvasType,
+            enableToothInteraction = _uiState.value.enableToothInteraction,
+        )
+
         _uiState.value.layers.forEach { layer ->
             if (!layerBitmaps.containsKey(layer.id)) {
                 layerBitmaps[layer.id] = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -168,11 +186,16 @@ class CanvasViewModel @Inject constructor(
         _uiState.update { state ->
             val nextStyle = suggestedStyleForType(brushType, state.activeBrush.style)
             val styleProfile = state.styleProfiles[nextStyle] ?: BrushProfile.preset(nextStyle)
+            val resolvedProfile = if (brushType == BrushType.ERASER) {
+                styleProfile.copy(blend = BlendBehavior.CLEAR)
+            } else {
+                styleProfile
+            }
             state.copy(
                 activeBrush = state.activeBrush.copy(
                     type = brushType,
                     style = nextStyle,
-                    profile = styleProfile,
+                    profile = resolvedProfile,
                     size = brushType.defaultSize,
                     opacity = brushType.defaultOpacity,
                     hardness = brushType.defaultHardness,
@@ -287,6 +310,48 @@ class CanvasViewModel @Inject constructor(
     fun updateTipJitter(jitter: Float) {
         updateActiveBrushProfile { profile ->
             profile.copy(tip = profile.tip.copy(jitter = jitter.coerceIn(0f, 0.6f)))
+        }
+    }
+
+    fun updateTipOverlapFactor(overlapFactor: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(overlapFactor = overlapFactor.coerceIn(0f, 1f)))
+        }
+    }
+
+    fun updateTipAlphaSmoothing(alphaSmoothing: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(alphaSmoothing = alphaSmoothing.coerceIn(0.05f, 0.35f)))
+        }
+    }
+
+    fun updateTipMicroDabEnabled(enabled: Boolean) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(enableMicroDab = enabled, useMicroDabs = enabled))
+        }
+    }
+
+    fun updateTipMinGapClamping(minGapPx: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(minGapClamping = minGapPx.coerceIn(0.25f, 4f)))
+        }
+    }
+
+    fun updateFluidJitterPercent(percent: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(fluidJitterPercent = percent.coerceIn(0f, 0.12f)))
+        }
+    }
+
+    fun updateFluidAccumulationAlpha(alpha: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(fluidAccumulationAlpha = alpha.coerceIn(0.05f, 0.35f)))
+        }
+    }
+
+    fun updateFluidVelocitySpacingTightening(tightening: Float) {
+        updateActiveBrushProfile { profile ->
+            profile.copy(tip = profile.tip.copy(fluidVelocitySpacingTightening = tightening.coerceIn(0f, 0.8f)))
         }
     }
 
@@ -453,12 +518,50 @@ class CanvasViewModel @Inject constructor(
         commandHistory.redo()
     }
 
+    fun setCanvasType(canvasType: CanvasType) {
+        _uiState.update { it.copy(canvasType = canvasType) }
+        canvasRenderingManager.setCanvasType(canvasType)
+    }
+
+    fun setToothInteraction(enabled: Boolean) {
+        _uiState.update { it.copy(enableToothInteraction = enabled) }
+        canvasRenderingManager.setToothInteraction(enabled)
+    }
+
+    fun setLighting(enabled: Boolean) {
+        _uiState.update { it.copy(enableLighting = enabled) }
+        canvasRenderingManager.setLighting(enabled)
+    }
+
+    fun setLightingIntensity(intensity: Float) {
+        _uiState.update { it.copy(lightingIntensity = intensity) }
+        canvasRenderingManager.setLightingIntensity(intensity)
+    }
+
+    fun toggleCanvasTypeSelector() {
+        _uiState.update { it.copy(isCanvasTypeSelectorOpen = !it.isCanvasTypeSelectorOpen) }
+    }
+
+    fun closeCanvasTypeSelector() {
+        _uiState.update { it.copy(isCanvasTypeSelectorOpen = false) }
+    }
+
+    fun getCanvasRenderingManager(): CanvasRenderingManager = canvasRenderingManager
+
     fun toggleLayerDrawer() {
         _uiState.update { it.copy(isLayerDrawerOpen = !it.isLayerDrawerOpen) }
     }
 
+    fun closeLayerDrawer() {
+        _uiState.update { it.copy(isLayerDrawerOpen = false) }
+    }
+
     fun toggleBrushSidebar() {
         _uiState.update { it.copy(isBrushSidebarOpen = !it.isBrushSidebarOpen) }
+    }
+
+    fun closeBrushSidebar() {
+        _uiState.update { it.copy(isBrushSidebarOpen = false) }
     }
 
     fun renameProject(newName: String) {

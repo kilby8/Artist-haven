@@ -3,10 +3,11 @@
     "versionCode":  3,
     "file":  "Artist-Haven-debug.apk",
     "relativeUrl":  "/Artist-haven/docs/downloads/Artist-Haven-debug.apk",
-    "builtAtUtc":  "2026-05-02T00:00:00.0000000Z",
+    "builtAtUtc":  "2026-05-02T01:30:00.0000000Z",
     "changes": [
-        "Bumped to version 1.2 following semantic versioning",
-        "New features and improvements included",
-        "Bug fixes and enhancements"
+        "Fixed canvas type names being cut off in menu",
+        "Improved color visibility on linen canvas",
+        "Enhanced touch responsiveness",
+        "UI and rendering improvements"
     ]
 }

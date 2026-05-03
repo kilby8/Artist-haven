@@ -56,6 +56,14 @@ data class TipSettings(
     val spacing: Float = 0.16f,
     val jitter: Float = 0f,
     val stampScale: Float = 1f,
+    val overlapFactor: Float = 0.8f,
+    val alphaSmoothing: Float = 0.15f,
+    val enableMicroDab: Boolean = true,
+    val useMicroDabs: Boolean = false,
+    val minGapClamping: Float = 1.0f,
+    val fluidJitterPercent: Float = 0.02f,
+    val fluidAccumulationAlpha: Float = 0.22f,
+    val fluidVelocitySpacingTightening: Float = 0.65f,
 )
 
 data class EdgeTreatment(

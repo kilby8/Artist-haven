@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -33,7 +34,20 @@ fun BrushPaletteScreen(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var selectedCategory by remember { mutableStateOf(BrushCategory.SKETCHING) }
+    val initiallySelectedCategory = remember(selectedBrushId) {
+        selectedBrushId
+            ?.let(BrushLibrary::getBrushById)
+            ?.category
+            ?: BrushCategory.SKETCHING
+    }
+    var selectedCategory by remember(selectedBrushId) { mutableStateOf(initiallySelectedCategory) }
+
+    LaunchedEffect(selectedBrushId) {
+        selectedCategory = selectedBrushId
+            ?.let(BrushLibrary::getBrushById)
+            ?.category
+            ?: BrushCategory.SKETCHING
+    }
 
     Column(
         modifier = modifier
