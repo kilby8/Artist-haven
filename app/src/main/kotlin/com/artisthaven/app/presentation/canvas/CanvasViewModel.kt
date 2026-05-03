@@ -518,6 +518,15 @@ class CanvasViewModel @Inject constructor(
         commandHistory.redo()
     }
 
+    fun clearActiveLayer() {
+        val activeLayer = _uiState.value.layers.getOrNull(_uiState.value.activeLayerIndex)
+            ?: return
+        if (activeLayer.isLocked) return
+        
+        val bitmap = layerBitmaps[activeLayer.id] ?: return
+        bitmap.eraseColor(0) // Transparent
+    }
+
     fun setCanvasType(canvasType: CanvasType) {
         _uiState.update { it.copy(canvasType = canvasType) }
         canvasRenderingManager.setCanvasType(canvasType)

@@ -77,6 +77,7 @@ fun DrawingScreen(
             onZoomIn = { canvasView?.zoomIn() },
             onZoomOut = { canvasView?.zoomOut() },
             onResetZoom = { canvasView?.resetZoom() },
+            onResetCanvas = { viewModel.clearActiveLayer() },
             onExport = { viewModel.exportAsPng() },
             onToggleCanvasSelector = { viewModel.toggleCanvasTypeSelector() },
             modifier = Modifier
@@ -280,6 +281,7 @@ private fun DrawingToolbar(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetZoom: () -> Unit,
+    onResetCanvas: () -> Unit,
     onExport: () -> Unit,
     onToggleCanvasSelector: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -375,6 +377,12 @@ private fun DrawingToolbar(
                         text = { Text("Reset zoom") },
                         leadingIcon = { Icon(Icons.Default.CenterFocusStrong, contentDescription = null) },
                         onClick = { showOverflow = false; onResetZoom() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Clear Canvas") },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                        onClick = { showOverflow = false; onResetCanvas() },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(

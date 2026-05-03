@@ -61,6 +61,7 @@ class DrawingCanvasView(context: Context) : View(context) {
     private val currentStrokePoints = mutableListOf<StrokePoint>()
     private var currentStrokeId: String? = null
     private var isDrawing = false
+    private var lastPreviewRenderIndex = 0  // Track last rendered point for incremental renders
 
     private var previewBitmap: Bitmap? = null
     private var previewCanvas: AndroidCanvas? = null
@@ -247,6 +248,7 @@ class DrawingCanvasView(context: Context) : View(context) {
         strokeStarted = false
         currentStrokeId = UUID.randomUUID().toString()
         currentStrokePoints.clear()
+        lastPreviewRenderIndex = 0  // Reset preview render tracking
         clearPreview()
         addCurrentPoint(event)
     }
@@ -296,17 +298,28 @@ class DrawingCanvasView(context: Context) : View(context) {
         val points = currentStrokePoints
         if (points.isEmpty()) return
 
-        // Redraw the live preview from stroke samples so all brush dynamics/styles
-        // (texture, velocity mapping, glow, pattern stamps) match committed rendering.
-        clearPreview()
-        brushEngine.renderStroke(
-            canvas = canvas,
-            points = points,
-            brush = brush,
-            isPreview = true,
-        )
+        // Optimization: Only render the new points since the last update instead of redrawing
+        // the entire stroke. This reduces frame-time significantly on lower-end devices.
+        val pointsToRender = if (lastPreviewRenderIndex > 0 && lastPreviewRenderIndex < points.size) {
+            // Incremental render: only the new points
+            points.subList(lastPreviewRenderIndex.coerceAtLeast(0), points.size)
+        } else {
+            // Full render on first update or if index is out of bounds
+            clearPreview()
+            points
+        }
 
-        invalidate()
+        if (pointsToRender.isNotEmpty()) {
+            brushEngine.renderStroke(
+                canvas = canvas,
+                points = pointsToRender,
+                brush = brush,
+                isPreview = true,
+            )
+            lastPreviewRenderIndex = points.size
+        }
+
+        postInvalidateOnAnimation()
     }
 
     private fun finishStroke(brush: Brush) {
@@ -316,6 +329,7 @@ class DrawingCanvasView(context: Context) : View(context) {
         val strokeId = currentStrokeId ?: return
         val points = currentStrokePoints.toList()
         currentStrokePoints.clear()
+        lastPreviewRenderIndex = 0  // Reset preview render tracking
         clearPreview()
 
         if (points.isNotEmpty()) {
