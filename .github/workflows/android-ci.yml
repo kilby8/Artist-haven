@@ -76,3 +76,17 @@ jobs:
           git add -A
           git commit -q -m "CI output for ${GITHUB_SHA}" || exit 0
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" "output:refs/heads/ci-output/${GITHUB_REF_NAME}"
+
+      # A pre-release with the APK attached gives a plain download link that works on a phone
+      # without signing in to GitHub. Replaced on every push to the branch.
+      - name: Publish preview APK as a pre-release
+        if: success() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="preview-${GITHUB_REF_NAME//\//-}"
+          cp app/build/outputs/apk/debug/app-debug.apk artist-haven.apk
+          gh release delete "$tag" --yes --cleanup-tag || true
+          gh release create "$tag" artist-haven.apk --prerelease --target "$GITHUB_SHA" \
+            --title "Artist Haven preview (${GITHUB_REF_NAME})" \
+            --notes "Debug build of ${GITHUB_SHA::7}. Download artist-haven.apk on an Android 8+ phone and open it to install."
