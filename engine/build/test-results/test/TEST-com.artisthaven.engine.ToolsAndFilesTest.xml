@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.artisthaven.engine.ToolsAndFilesTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-25T00:51:10.294Z" hostname="vm" time="1.618">
+  <properties/>
+  <testcase name="psdHasHeaderAndAllLayers" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.225"/>
+  <testcase name="longStrokeIsFastEnough" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.662"/>
+  <testcase name="quickShapeRecognisesLinesCirclesAndRectangles" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.006"/>
+  <testcase name="packBitsDecodesBack" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.001"/>
+  <testcase name="quickShapeReplacesTheStrokeInPlace" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.012"/>
+  <testcase name="projectRoundTripsExactly" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.116"/>
+  <testcase name="renderBrushSheet" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.593"/>
+  <system-out><![CDATA[Long wet stroke (601 points, 80 px): 267.8 ms
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
