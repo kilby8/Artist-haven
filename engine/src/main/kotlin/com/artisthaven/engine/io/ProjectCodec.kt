@@ -80,11 +80,23 @@ object ProjectCodec {
         },
     )
 
-    /** Saves [doc] into [dir]. Layer files no longer used are deleted. */
-    fun save(doc: Document, dir: File, name: String, createdAt: Long, modifiedAt: Long): ProjectManifest {
+    /**
+     * Saves [doc] into [dir]. Only layers in [changedLayers] are rewritten (null means all), plus
+     * any whose file is missing. Layer files no longer used are deleted.
+     */
+    fun save(
+        doc: Document,
+        dir: File,
+        name: String,
+        createdAt: Long,
+        modifiedAt: Long,
+        changedLayers: Set<String>? = null,
+    ): ProjectManifest {
         dir.mkdirs()
         val manifest = manifestFor(doc, name, createdAt, modifiedAt)
         for ((layer, entry) in doc.layers.zip(manifest.layers)) {
+            val file = File(dir, entry.file)
+            if (changedLayers != null && layer.id !in changedLayers && file.exists()) continue
             atomicWrite(File(dir, entry.file)) { out -> writeSurface(layer.surface, out) }
         }
         atomicWrite(File(dir, MANIFEST)) { out ->

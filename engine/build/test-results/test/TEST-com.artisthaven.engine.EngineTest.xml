@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.artisthaven.engine.EngineTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-25T00:51:11.917Z" hostname="vm" time="0.541">
+<testsuite name="com.artisthaven.engine.EngineTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-25T01:03:29.385Z" hostname="vm" time="0.79">
   <properties/>
-  <testcase name="layerOperationsAreUndoable" classname="com.artisthaven.engine.EngineTest" time="0.009"/>
-  <testcase name="everyBrushLooksDifferent" classname="com.artisthaven.engine.EngineTest" time="0.189"/>
+  <testcase name="layerOperationsAreUndoable" classname="com.artisthaven.engine.EngineTest" time="0.084"/>
+  <testcase name="everyBrushLooksDifferent" classname="com.artisthaven.engine.EngineTest" time="0.385"/>
   <testcase name="eraserRemovesPaint" classname="com.artisthaven.engine.EngineTest" time="0.009"/>
-  <testcase name="smudgeDragsColourIntoEmptyArea" classname="com.artisthaven.engine.EngineTest" time="0.008"/>
-  <testcase name="pressureChangesTheLine" classname="com.artisthaven.engine.EngineTest" time="0.022"/>
-  <testcase name="historyStaysWithinItsMemoryBudget" classname="com.artisthaven.engine.EngineTest" time="0.185"/>
-  <testcase name="floodFillStaysInsideLineArt" classname="com.artisthaven.engine.EngineTest" time="0.006"/>
-  <testcase name="repeatedUndoAlwaysReportsAChange" classname="com.artisthaven.engine.EngineTest" time="0.006"/>
-  <testcase name="strokePaintsAndUndoRestoresExactly" classname="com.artisthaven.engine.EngineTest" time="0.007"/>
-  <testcase name="premultiplyRoundTrip" classname="com.artisthaven.engine.EngineTest" time="0.0"/>
-  <testcase name="clippingMaskOnlyShowsOverTheLayerBelow" classname="com.artisthaven.engine.EngineTest" time="0.004"/>
-  <testcase name="alphaLockOnlyRecoloursExistingPaint" classname="com.artisthaven.engine.EngineTest" time="0.006"/>
-  <testcase name="verticalSymmetryMirrorsTheStroke" classname="com.artisthaven.engine.EngineTest" time="0.004"/>
-  <testcase name="glazeOpacityIsCappedWithinOneStroke" classname="com.artisthaven.engine.EngineTest" time="0.081"/>
+  <testcase name="smudgeDragsColourIntoEmptyArea" classname="com.artisthaven.engine.EngineTest" time="0.005"/>
+  <testcase name="pressureChangesTheLine" classname="com.artisthaven.engine.EngineTest" time="0.013"/>
+  <testcase name="historyStaysWithinItsMemoryBudget" classname="com.artisthaven.engine.EngineTest" time="0.138"/>
+  <testcase name="floodFillStaysInsideLineArt" classname="com.artisthaven.engine.EngineTest" time="0.017"/>
+  <testcase name="repeatedUndoAlwaysReportsAChange" classname="com.artisthaven.engine.EngineTest" time="0.011"/>
+  <testcase name="strokePaintsAndUndoRestoresExactly" classname="com.artisthaven.engine.EngineTest" time="0.018"/>
+  <testcase name="premultiplyRoundTrip" classname="com.artisthaven.engine.EngineTest" time="0.001"/>
+  <testcase name="clippingMaskOnlyShowsOverTheLayerBelow" classname="com.artisthaven.engine.EngineTest" time="0.006"/>
+  <testcase name="alphaLockOnlyRecoloursExistingPaint" classname="com.artisthaven.engine.EngineTest" time="0.007"/>
+  <testcase name="verticalSymmetryMirrorsTheStroke" classname="com.artisthaven.engine.EngineTest" time="0.006"/>
+  <testcase name="glazeOpacityIsCappedWithinOneStroke" classname="com.artisthaven.engine.EngineTest" time="0.086"/>
   <testcase name="multiplyDarkensAndScreenLightens" classname="com.artisthaven.engine.EngineTest" time="0.0"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>

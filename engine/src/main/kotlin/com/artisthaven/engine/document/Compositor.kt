@@ -87,4 +87,59 @@ object Compositor {
         composite(doc, IRect(cx, cy, cx + 1, cy + 1), one, originX = cx, originY = cy, stride = 1, withPaper = true)
         return one[0]
     }
+
+    /**
+     * Small straight-ARGB preview that fits in [maxSize] x [maxSize], averaging a 2x2 grid of
+     * samples per output pixel. Returns the image and its width and height.
+     */
+    fun thumbnail(doc: Document, maxSize: Int, withPaper: Boolean = true): Triple<IntArray, Int, Int> {
+        val scale = minOf(maxSize.toFloat() / doc.width, maxSize.toFloat() / doc.height, 1f)
+        val tw = maxOf(1, (doc.width * scale).toInt())
+        val th = maxOf(1, (doc.height * scale).toInt())
+        val out = IntArray(tw * th)
+        val visible = doc.layers.filter { it.visible && it.opacity > 0f }
+        val paper = if (withPaper && doc.paperVisible) Pixels.premultiply(doc.paperColor or (0xFF shl 24)) else 0
+        val fx = doc.width.toFloat() / tw
+        val fy = doc.height.toFloat() / th
+        for (y in 0 until th) for (x in 0 until tw) {
+            var a = 0; var r = 0; var g = 0; var b = 0
+            for (sy in 0..1) for (sx in 0..1) {
+                val px = ((x + 0.25f + sx * 0.5f) * fx).toInt().coerceIn(0, doc.width - 1)
+                val py = ((y + 0.25f + sy * 0.5f) * fy).toInt().coerceIn(0, doc.height - 1)
+                var acc = paper
+                var base = 0
+                for (layer in visible) {
+                    var src = layer.surface.getPixel(px, py)
+                    if (!layer.clipping) base = src ushr 24
+                    if (src == 0) continue
+                    if (layer.clipping) {
+                        if (base == 0) continue
+                        if (base < 255) src = Pixels.scale(src, base / 255f)
+                    }
+                    acc = layer.blendMode.blend(acc, src, layer.opacity)
+                }
+                a += Pixels.alpha(acc); r += Pixels.red(acc); g += Pixels.green(acc); b += Pixels.blue(acc)
+            }
+            out[y * tw + x] = Pixels.unpremultiply(Pixels.pack(a / 4, r / 4, g / 4, b / 4))
+        }
+        return Triple(out, tw, th)
+    }
+
+    /** Thumbnail of a single layer's pixels on a transparent background. */
+    fun layerThumbnail(doc: Document, layerId: String, maxSize: Int): Triple<IntArray, Int, Int> {
+        val layer = doc.layer(layerId)
+        val scale = minOf(maxSize.toFloat() / doc.width, maxSize.toFloat() / doc.height, 1f)
+        val tw = maxOf(1, (doc.width * scale).toInt())
+        val th = maxOf(1, (doc.height * scale).toInt())
+        val out = IntArray(tw * th)
+        if (layer != null) {
+            val fx = doc.width.toFloat() / tw
+            val fy = doc.height.toFloat() / th
+            for (y in 0 until th) for (x in 0 until tw) {
+                val c = layer.surface.getPixel(((x + 0.5f) * fx).toInt(), ((y + 0.5f) * fy).toInt())
+                out[y * tw + x] = Pixels.unpremultiply(c)
+            }
+        }
+        return Triple(out, tw, th)
+    }
 }
