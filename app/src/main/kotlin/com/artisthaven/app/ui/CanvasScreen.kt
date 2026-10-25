@@ -137,8 +137,6 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                 state = state,
                 onGallery = { vm.close(onExit) },
                 onActions = { vm.togglePanel(Panel.ACTIONS) },
-                onUndo = { vm.undo() },
-                onRedo = { vm.redo() },
                 onTool = vm::selectTool,
                 onLayers = { vm.togglePanel(Panel.LAYERS) },
                 onColors = { vm.togglePanel(Panel.COLORS) },
@@ -151,6 +149,10 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                     maxSize = state.activeBrush.maxSize,
                     opacity = state.opacity,
                     eyedropperActive = state.tool == ToolMode.EYEDROPPER,
+                    canUndo = state.host.canUndo,
+                    canRedo = state.host.canRedo,
+                    onUndo = { vm.undo() },
+                    onRedo = { vm.redo() },
                     onSize = vm::setSize,
                     onOpacity = vm::setOpacity,
                     onEyedropper = {
@@ -212,8 +214,6 @@ private fun TopBar(
     state: com.artisthaven.app.canvas.CanvasUiState,
     onGallery: () -> Unit,
     onActions: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
     onTool: (ToolMode) -> Unit,
     onLayers: () -> Unit,
     onColors: () -> Unit,
@@ -229,8 +229,6 @@ private fun TopBar(
     ) {
         BarButton(Icons.Filled.GridView, "Gallery", onClick = onGallery)
         BarButton(Icons.Filled.Build, "Actions", selected = state.panel == Panel.ACTIONS, onClick = onActions)
-        BarButton(Icons.AutoMirrored.Filled.Undo, "Undo", enabled = state.host.canUndo, onClick = onUndo)
-        BarButton(Icons.AutoMirrored.Filled.Redo, "Redo", enabled = state.host.canRedo, onClick = onRedo)
         Spacer(Modifier.weight(1f))
         BarButton(Icons.Filled.Brush, "Paint", selected = state.tool == ToolMode.BRUSH) { onTool(ToolMode.BRUSH) }
         BarButton(Icons.Filled.TouchApp, "Smudge", selected = state.tool == ToolMode.SMUDGE) { onTool(ToolMode.SMUDGE) }
@@ -280,6 +278,10 @@ private fun Sidebar(
     maxSize: Float,
     opacity: Float,
     eyedropperActive: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     onSize: (Float) -> Unit,
     onOpacity: (Float) -> Unit,
     onEyedropper: () -> Unit,
@@ -310,6 +312,13 @@ private fun Sidebar(
             readout = { "${(opacity * 100).roundToInt()}%" },
             tag = "slider_opacity",
         )
+        // Undo and redo live with the sliders, under the thumb, as in Procreate.
+        IconButton(onClick = onUndo, enabled = canUndo, modifier = Modifier.size(36.dp).testTag("tool_undo")) {
+            Icon(Icons.AutoMirrored.Filled.Undo, "Undo", tint = if (canUndo) Haven.text else Haven.textDim.copy(alpha = 0.4f))
+        }
+        IconButton(onClick = onRedo, enabled = canRedo, modifier = Modifier.size(36.dp).testTag("tool_redo")) {
+            Icon(Icons.AutoMirrored.Filled.Redo, "Redo", tint = if (canRedo) Haven.text else Haven.textDim.copy(alpha = 0.4f))
+        }
     }
 }
 
@@ -320,7 +329,7 @@ fun VerticalSlider(value: Float, onChange: (Float) -> Unit, label: String, reado
     BoxWithConstraints(
         Modifier
             .width(30.dp)
-            .height(170.dp)
+            .height(150.dp)
             .testTag(tag)
             .semantics { contentDescription = label }
             .pointerInput(Unit) {
