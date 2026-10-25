@@ -1,14 +1,14 @@
 package com.artisthaven.app
 
 import android.os.Looper
-import androidx.compose.ui.graphics.asAndroidBitmap
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.geometry.Offset
@@ -36,7 +36,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class AppFlowTest {
     @get:Rule
-    val rule = createComposeRule()
+    val rule = createAndroidComposeRule<ComponentActivity>()
 
     private fun settle(ms: Long = 400) {
         val end = System.currentTimeMillis() + ms
@@ -48,9 +48,13 @@ class AppFlowTest {
         rule.waitForIdle()
     }
 
+    /** Draws the activity window in software; captureToImage waits for frames Robolectric never sends. */
     private fun shot(name: String) {
         settle(150)
-        rule.onRoot().captureToImage().asAndroidBitmap().saveScreenshot(name)
+        val view = rule.activity.window.decorView
+        val bmp = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        rule.runOnUiThread { view.draw(Canvas(bmp)) }
+        bmp.saveScreenshot(name)
     }
 
     private fun stroke(points: List<Offset>) {
