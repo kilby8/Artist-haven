@@ -216,8 +216,9 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         canvas.save()
         canvas.concat(matrix)
         canvas.drawRect(0f, 0f, h.width.toFloat(), h.height.toFloat(), shadowPaint)
-        // Smooth when zoomed out, crisp pixels when zoomed right in.
-        bitmapPaint.isFilterBitmap = currentScale() < 2.5f
+        // Smooth (bilinear) at normal zoom so strokes don't show pixel stairs; only show hard
+        // pixels when zoomed right in for detail work, as Procreate does.
+        bitmapPaint.isFilterBitmap = currentScale() < PIXEL_ZOOM
         canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
         canvas.restore()
 
@@ -540,6 +541,9 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
     }
 
     companion object {
+        /** Zoom at which the canvas switches to showing individual pixels. */
+        private const val PIXEL_ZOOM = 8f
+
         private val BACKDROP = Color.rgb(40, 40, 46)
         private const val MIN_SCALE = 0.05f
         private const val MAX_SCALE = 32f

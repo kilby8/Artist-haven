@@ -102,8 +102,12 @@ fun GalleryScreen(store: ProjectStore, onOpen: (String) -> Unit) {
     }
 
     val screenPreset = remember {
+        // Twice the screen resolution (within the size limit), so zooming in stays sharp.
         val dm = context.resources.displayMetrics
-        CanvasPreset("Screen size", min(dm.widthPixels, dm.heightPixels), max(dm.widthPixels, dm.heightPixels))
+        val short = min(dm.widthPixels, dm.heightPixels)
+        val long = max(dm.widthPixels, dm.heightPixels)
+        val k = min(2f, MAX_CANVAS_SIDE.toFloat() / long)
+        CanvasPreset("Phone screen (sharp)", (short * k).toInt(), (long * k).toInt())
     }
 
     Box(Modifier.fillMaxSize().background(Haven.background)) {
