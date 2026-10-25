@@ -156,14 +156,18 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
 
     // ---- View transform ---------------------------------------------------------------------------
 
+    /** Space on the left covered by the sidebar, kept clear when fitting the canvas. */
+    var leftInset: Float = 0f
+
     fun fitToScreen() {
         val h = host ?: return
         if (width == 0 || height == 0) return
-        val margin = 24f * resources.displayMetrics.density
-        val scale = min((width - 2 * margin) / h.width, (height - 2 * margin) / h.height)
+        val margin = 16f * resources.displayMetrics.density
+        val usableW = width - leftInset - 2 * margin
+        val scale = min(usableW / h.width, (height - 2 * margin) / h.height)
         matrix.reset()
         matrix.postScale(scale, scale)
-        matrix.postTranslate((width - h.width * scale) / 2f, (height - h.height * scale) / 2f)
+        matrix.postTranslate(leftInset + (width - leftInset - h.width * scale) / 2f, (height - h.height * scale) / 2f)
         rotation = 0f
         matrix.invert(inverse)
         invalidate()

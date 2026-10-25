@@ -126,7 +126,10 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                         override fun brushDiameter(): Float = vm.state.value.size
                         override fun fingerPaintingAllowed(): Boolean = vm.state.value.fingerPainting
                         override fun onStylusDetected() = vm.onStylusDetected()
-                    }).also { canvasView = it }
+                    }).also {
+                        it.leftInset = 64f * ctx.resources.displayMetrics.density
+                        canvasView = it
+                    }
                 },
                 update = { view -> if (view.host !== host) view.host = host },
             )
