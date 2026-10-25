@@ -82,9 +82,7 @@ class ProjectStore(context: Context) {
         val d = dir(id)
         val m = ProjectCodec.readManifest(d)
         val updated = m.copy(name = name, modifiedAt = System.currentTimeMillis())
-        ProjectCodec.atomicWrite(File(d, ProjectCodec.MANIFEST)) {
-            it.write(ProjectCodec.json.encodeToString(ProjectManifest.serializer(), updated).toByteArray())
-        }
+        ProjectCodec.writeManifest(d, updated)
     }
 
     fun duplicate(id: String): String {
@@ -93,9 +91,7 @@ class ProjectStore(context: Context) {
         val m = ProjectCodec.readManifest(dir(newId))
         val now = System.currentTimeMillis()
         val updated = m.copy(name = m.name + " copy", createdAt = now, modifiedAt = now)
-        ProjectCodec.atomicWrite(File(dir(newId), ProjectCodec.MANIFEST)) {
-            it.write(ProjectCodec.json.encodeToString(ProjectManifest.serializer(), updated).toByteArray())
-        }
+        ProjectCodec.writeManifest(dir(newId), updated)
         return newId
     }
 

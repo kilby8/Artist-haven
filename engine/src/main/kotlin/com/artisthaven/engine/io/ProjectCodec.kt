@@ -99,13 +99,18 @@ object ProjectCodec {
             if (changedLayers != null && layer.id !in changedLayers && file.exists()) continue
             atomicWrite(File(dir, entry.file)) { out -> writeSurface(layer.surface, out) }
         }
-        atomicWrite(File(dir, MANIFEST)) { out ->
-            out.write(json.encodeToString(ProjectManifest.serializer(), manifest).toByteArray())
-        }
+        writeManifest(dir, manifest)
         val keep = manifest.layers.map { it.file }.toSet()
         dir.listFiles { f -> f.name.startsWith("layer_") && f.name.endsWith(".bin") && f.name !in keep }
             ?.forEach { it.delete() }
         return manifest
+    }
+
+    /** Replaces a project's manifest atomically, e.g. after a rename. */
+    fun writeManifest(dir: File, manifest: ProjectManifest) {
+        atomicWrite(File(dir, MANIFEST)) { out ->
+            out.write(json.encodeToString(ProjectManifest.serializer(), manifest).toByteArray())
+        }
     }
 
     fun readManifest(dir: File): ProjectManifest =
