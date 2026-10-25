@@ -131,6 +131,23 @@ class ToolsAndFilesTest {
 
     /** Renders every brush so they can be checked by eye (written to build/test-output). */
     @Test
+    fun wetBrushesMixWithPaintUnderneathButStayOpaqueOnBareCanvas() {
+        val doc = Document.blank(400, 200, paperColor = 0xFFFFFFFF.toInt())
+        val editor = Editor(doc)
+        draw(editor, TestSupport.line(200f, 10f, 200f, 190f), StrokeParams(BrushLibrary.byId("hard_airbrush"), color = 0xFF1565C0.toInt(), size = 60f))
+        draw(editor, TestSupport.line(20f, 100f, 380f, 100f, steps = 120), StrokeParams(BrushLibrary.byId("oil_paint"), color = 0xFFC62828.toInt(), size = 30f))
+        TestSupport.savePng(doc, "wet-mix.png")
+        val layer = doc.activeLayer!!
+        val before = layer.surface.getPixel(80, 100)
+        assertTrue("oil stays opaque on bare canvas (alpha ${before ushr 24})", before ushr 24 > 200)
+        // Just past the blue band, the brush carries blue into the red.
+        val after = Compositor.sample(doc, 250, 100)
+        val r = (after shr 16) and 0xFF
+        val b = after and 0xFF
+        assertTrue("paint picked up blue (r=$r b=$b)", b > 55 && r > 70)
+    }
+
+    @Test
     fun renderBrushSheet() {
         val brushes = BrushLibrary.all
         val rowH = 110

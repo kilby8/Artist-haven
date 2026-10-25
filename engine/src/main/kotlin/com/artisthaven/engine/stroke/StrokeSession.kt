@@ -448,6 +448,18 @@ class StrokeSession(
         return m
     }
 
+    /**
+     * What a wet brush picks up: mostly the paint that was there before this stroke, plus a little
+     * of its own fresh paint, so it mixes with the colours underneath instead of only itself.
+     */
+    private fun wetSample(x: Int, y: Int): Int {
+        val current = surface.getPixel(x, y)
+        val index = (y shr TiledSurface.SHIFT) * surface.tilesX + (x shr TiledSurface.SHIFT)
+        if (!originals.containsKey(index)) return current
+        val before = originals[index]?.get(((y and TiledSurface.MASK) shl TiledSurface.SHIFT) or (x and TiledSurface.MASK)) ?: 0
+        return Pixels.lerp(before, current, 0.3f)
+    }
+
     private fun originalTile(index: Int): IntArray? {
         if (!originals.containsKey(index)) originals[index] = surface.copyTile(index)
         return originals[index]
@@ -559,7 +571,7 @@ class StrokeSession(
             while (sx < rect.right) {
                 val m = maskAt(s, sx + 0.5f, sy + 0.5f, cx, cy, radius, cosA, sinA, invRound, 0f)
                 if (m > 0f) {
-                    val c = surface.getPixel(sx, sy)
+                    val c = if (smudge) surface.getPixel(sx, sy) else wetSample(sx, sy)
                     wa += Pixels.alpha(c) / 255f * m
                     wr += Pixels.red(c) / 255f * m
                     wg += Pixels.green(c) / 255f * m
@@ -588,10 +600,18 @@ class StrokeSession(
             val load = if (brush.charge >= 1f) 1f else max(0f, 1f - distance / (brush.charge * 900f + 1f))
             val mix = 1f - (1f - brush.pull) * load
             val alphaC = 1f - brush.dilution
-            pa = alphaC + (s.sa - alphaC) * mix
-            pr = cr * alphaC + (s.sr - cr * alphaC) * mix
-            pg = cg * alphaC + (s.sg - cg * alphaC) * mix
-            pb = cb * alphaC + (s.sb - cb * alphaC) * mix
+            // The reservoir only tints the paint as much as it actually holds paint, so passing
+            // over bare canvas never thins the brush out.
+            val held = s.sa.coerceIn(0f, 1f)
+            val m = mix * held
+            val inv = if (held > 0.004f) 1f / held else 0f
+            val rr = (s.sr * inv).coerceIn(0f, 1f)
+            val rg = (s.sg * inv).coerceIn(0f, 1f)
+            val rb = (s.sb * inv).coerceIn(0f, 1f)
+            pa = alphaC + max(0f, held - alphaC) * mix
+            pr = (cr + (rr - cr) * m) * pa
+            pg = (cg + (rg - cg) * m) * pa
+            pb = (cb + (rb - cb) * m) * pa
         }
         val paint = Pixels.pack(
             (pa * 255f + 0.5f).toInt(), (pr * 255f + 0.5f).toInt(),
@@ -599,11 +619,32 @@ class StrokeSession(
         )
 
         // The brush picks up some of the paint it just passed over.
-        val pickup = if (smudge) 1f - params.brush.smudgeStrength.coerceIn(0f, 0.98f) else 0.25f
-        s.sa += (wa - s.sa) * pickup
-        s.sr += (wr - s.sr) * pickup
-        s.sg += (wg - s.sg) * pickup
-        s.sb += (wb - s.sb) * pickup
+        if (smudge) {
+            val pickup = 1f - params.brush.smudgeStrength.coerceIn(0f, 0.98f)
+            s.sa += (wa - s.sa) * pickup
+            s.sr += (wr - s.sr) * pickup
+            s.sg += (wg - s.sg) * pickup
+            s.sb += (wb - s.sb) * pickup
+        } else {
+            // A loaded brush takes on colour in proportion to the paint it touches, and only slowly
+            // runs dry over bare canvas, so colours drag on past the edge of what it crossed.
+            val pickup = 0.3f
+            val heldBefore = s.sa.coerceIn(0f, 1f)
+            val invH = if (heldBefore > 0.004f) 1f / heldBefore else 0f
+            val invW = if (wa > 0.004f) 1f / wa else 0f
+            var r = s.sr * invH
+            var g = s.sg * invH
+            var b = s.sb * invH
+            val k = pickup * wa.coerceIn(0f, 1f)
+            r += (wr * invW - r) * k
+            g += (wg * invW - g) * k
+            b += (wb * invW - b) * k
+            val held = heldBefore + (wa - heldBefore) * (if (wa > heldBefore) pickup else pickup * 0.12f)
+            s.sa = held
+            s.sr = r.coerceIn(0f, 1f) * held
+            s.sg = g.coerceIn(0f, 1f) * held
+            s.sb = b.coerceIn(0f, 1f) * held
+        }
 
         val strength = (amount * (if (smudge) params.opacity else 1f)).coerceIn(0f, 1f)
         val shift = TiledSurface.SHIFT

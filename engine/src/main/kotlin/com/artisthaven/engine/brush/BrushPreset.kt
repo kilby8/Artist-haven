@@ -172,7 +172,7 @@ object BrushLibrary {
         BrushPreset(
             id = "wet_wash", name = "Wet Wash", category = BrushCategory.WATERCOLOR,
             defaultSize = 70f, maxSize = 400f, defaultOpacity = 0.55f,
-            tip = TipShape.WATERCOLOR, spacing = 0.08f, sizeJitter = 0.06f,
+            tip = TipShape.WATERCOLOR, spacing = 0.025f,
             streamline = 0.25f, flow = 0.4f, blendMode = BlendMode.MULTIPLY,
             grain = GrainTexture.PAPER, grainScale = 1.6f, grainDepth = 0.4f,
             pressureSize = 0.3f, pressureFlow = 0.6f,
