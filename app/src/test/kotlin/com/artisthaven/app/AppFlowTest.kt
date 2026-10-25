@@ -18,6 +18,7 @@ import com.artisthaven.app.ui.theme.ArtistHavenTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
+import java.time.Duration
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -41,7 +42,8 @@ class AppFlowTest {
     private fun settle(ms: Long = 400) {
         val end = System.currentTimeMillis() + ms
         while (System.currentTimeMillis() < end) {
-            shadowOf(Looper.getMainLooper()).idle()
+            // Advance the main looper's clock too, so Choreographer frames (and invalidates) run.
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16))
             rule.mainClock.advanceTimeBy(16)
             Thread.sleep(10)
         }
@@ -49,12 +51,28 @@ class AppFlowTest {
     }
 
     /** Draws the activity window in software; captureToImage waits for frames Robolectric never sends. */
-    private fun shot(name: String) {
+    private fun shot(name: String): Bitmap {
         settle(150)
         val view = rule.activity.window.decorView
         val bmp = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         rule.runOnUiThread { view.draw(Canvas(bmp)) }
         bmp.saveScreenshot(name)
+        return bmp
+    }
+
+    /** Pixels in the middle band of the screen that are clearly not white paper or dark chrome. */
+    private fun paintedPixels(bmp: Bitmap): Int {
+        var n = 0
+        for (y in bmp.height / 4 until bmp.height * 3 / 4 step 2) {
+            for (x in bmp.width / 5 until bmp.width * 4 / 5 step 2) {
+                val c = bmp.getPixel(x, y)
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                if (r + g + b in 60..690 && maxOf(r, g, b) > 45) n++
+            }
+        }
+        return n
     }
 
     private fun stroke(points: List<Offset>) {
@@ -90,6 +108,8 @@ class AppFlowTest {
 
         // Ink stroke with the default Studio Pen.
         stroke(wave(h * 0.35f, w, h * 0.06f))
+        val afterInk = paintedPixels(shot("02b-first-stroke"))
+        assertTrue("the first stroke shows on the canvas ($afterInk px)", afterInk > 100)
 
         // Pick a watercolour brush from the library (tap the active brush tool to open it).
         rule.onNodeWithTag("tool_paint").performClick()

@@ -152,7 +152,6 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
 
     init {
         isFocusable = true
-        setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
     // ---- View transform ---------------------------------------------------------------------------
