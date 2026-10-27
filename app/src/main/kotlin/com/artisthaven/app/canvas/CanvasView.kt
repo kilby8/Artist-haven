@@ -22,7 +22,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** What a touch on the canvas does, decided by the current tool. */
-enum class TouchAction { PAINT, FILL, EYEDROPPER, TRANSFORM }
+enum class TouchAction { PAINT, FILL, EYEDROPPER, TRANSFORM, SELECT }
 
 /**
  * The drawing surface. It shows the engine's composite through a zoom/rotate/pan matrix and turns
@@ -56,6 +56,10 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         fun onStylusDetected()
         /** Moves the layer being transformed to [m] (document space). */
         fun transformTo(m: Affine)
+        fun selectShape(): SelectShape
+        /** A closed selection outline in document pixels: x0, y0, x1, y1, ... */
+        fun selectOutline(xy: FloatArray)
+        fun selectAt(x: Int, y: Int)
     }
 
     /** The move/transform in progress, drawn as a box with handles; null when not transforming. */
@@ -107,7 +111,7 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
     private val tmp = FloatArray(2)
 
     // Gesture state.
-    private enum class Mode { IDLE, PAINTING, NAVIGATING, PICKING, WAITING }
+    private enum class Mode { IDLE, PAINTING, NAVIGATING, PICKING, WAITING, LASSO }
 
     private var mode = Mode.IDLE
     private var stylusSeen = false
@@ -231,7 +235,9 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         // pixels when zoomed right in for detail work, as Procreate does.
         bitmapPaint.isFilterBitmap = currentScale() < PIXEL_ZOOM
         canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
+        drawSelectionOverlay(canvas, h)
         canvas.restore()
+        if (mode == Mode.LASSO) drawLasso(canvas)
 
         transform?.let { drawTransformBox(canvas, it) }
 
@@ -349,6 +355,12 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
             TouchAction.FILL, TouchAction.TRANSFORM -> {
                 mode = Mode.WAITING
             }
+            TouchAction.SELECT -> {
+                mode = Mode.LASSO
+                lasso.clear()
+                lasso += e.x
+                lasso += e.y
+            }
             TouchAction.EYEDROPPER -> {
                 mode = Mode.PICKING
                 pick(e.x, e.y, final = false)
@@ -376,6 +388,7 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         removeCallbacks(holdToPick)
         removeCallbacks(quickShapeCheck)
         if (mode == Mode.PICKING) return
+        lasso.clear()
         mode = Mode.NAVIGATING
         gestureStart = if (maxPointers == 2) e.eventTime else gestureStart
         startTransform(e)
@@ -446,6 +459,16 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
                     startTransform(e)
                 }
             }
+            Mode.LASSO -> {
+                for (hp in 0 until e.historySize) {
+                    lasso += e.getHistoricalX(0, hp)
+                    lasso += e.getHistoricalY(0, hp)
+                }
+                lasso += e.x
+                lasso += e.y
+                if (hypot(e.x - downX, e.y - downY) > slop) gestureMoved = true
+                invalidate()
+            }
             Mode.IDLE -> Unit
         }
     }
@@ -494,6 +517,7 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
                     callbacks.redo()
                 }
             }
+            Mode.LASSO -> finishLasso(e)
             Mode.IDLE -> Unit
         }
         reset()
@@ -551,6 +575,84 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
 
     private fun angle(e: MotionEvent): Float =
         if (e.pointerCount < 2) 0f else atan2(e.getY(1) - e.getY(0), e.getX(1) - e.getX(0))
+
+    // ---- Selection ----------------------------------------------------------------------------------
+
+    /** The outline being drawn, in screen pixels. */
+    private val lasso = ArrayList<Float>()
+    private var overlayBitmap: Bitmap? = null
+    private var overlayVersion = -1
+    private val overlayPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { color = Color.argb(150, 12, 18, 40) }
+    private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.rgb(77, 163, 255)
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f)
+    }
+
+    /** Dims everything outside the selection, so it's clear what painting will touch. */
+    private fun drawSelectionOverlay(canvas: Canvas, h: EngineHost) {
+        if (overlayVersion != h.selectionVersion) {
+            overlayVersion = h.selectionVersion
+            val bytes = h.selectionOverlay
+            if (bytes == null) {
+                overlayBitmap?.recycle()
+                overlayBitmap = null
+            } else {
+                val b = overlayBitmap?.takeIf { it.width == h.width && it.height == h.height }
+                    ?: Bitmap.createBitmap(h.width, h.height, Bitmap.Config.ALPHA_8)
+                b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(bytes))
+                overlayBitmap = b
+            }
+        }
+        overlayBitmap?.let { canvas.drawBitmap(it, 0f, 0f, overlayPaint) }
+    }
+
+    private fun lassoShape(endX: Float, endY: Float): List<Float> {
+        if (lasso.size < 2) return emptyList()
+        val x0 = lasso[0]
+        val y0 = lasso[1]
+        return when (callbacks.selectShape()) {
+            SelectShape.FREEHAND -> lasso
+            SelectShape.RECTANGLE -> listOf(x0, y0, endX, y0, endX, endY, x0, endY)
+            SelectShape.ELLIPSE -> (0 until 72).flatMap { i ->
+                val a = i / 72f * 2f * Math.PI.toFloat()
+                listOf((x0 + endX) / 2f + kotlin.math.cos(a) * (endX - x0) / 2f, (y0 + endY) / 2f + kotlin.math.sin(a) * (endY - y0) / 2f)
+            }
+            SelectShape.AUTOMATIC -> emptyList()
+        }
+    }
+
+    private fun drawLasso(canvas: Canvas) {
+        val n = lasso.size
+        if (n < 4) return
+        val pts = lassoShape(lasso[n - 2], lasso[n - 1])
+        if (pts.size < 4) return
+        val path = android.graphics.Path()
+        path.moveTo(pts[0], pts[1])
+        var i = 2
+        while (i + 1 < pts.size) {
+            path.lineTo(pts[i], pts[i + 1])
+            i += 2
+        }
+        path.close()
+        lassoPaint.strokeWidth = 2f * resources.displayMetrics.density
+        canvas.drawPath(path, outlineShadow)
+        canvas.drawPath(path, lassoPaint)
+    }
+
+    private fun finishLasso(e: MotionEvent) {
+        if (callbacks.selectShape() == SelectShape.AUTOMATIC) {
+            if (!gestureMoved && maxPointers == 1) {
+                val (x, y) = toDoc(e.x, e.y)
+                callbacks.selectAt(x.toInt(), y.toInt())
+            }
+        } else if (gestureMoved && maxPointers == 1) {
+            val pts = lassoShape(e.x, e.y).toFloatArray()
+            inverse.mapPoints(pts)
+            callbacks.selectOutline(pts)
+        }
+        lasso.clear()
+    }
 
     // ---- Move and transform -------------------------------------------------------------------------
 

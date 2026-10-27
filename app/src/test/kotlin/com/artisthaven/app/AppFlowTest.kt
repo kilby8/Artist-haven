@@ -166,7 +166,16 @@ class AppFlowTest {
         stroke((0..20).map { i -> Offset(w * (0.2f + 0.2f * i / 20f), h * (0.8f - 0.1f * i / 20f)) })
         shot("08-symmetry")
 
-        // Move and transform the layer: drag it, turn it, flip it, then Done.
+        // Select part of the layer with a rectangle; the rest of the canvas dims.
+        rule.onNodeWithTag("tool_select").performClick()
+        settle()
+        rule.onNodeWithTag("selection_bar").assertExists()
+        rule.onNodeWithTag("select_rectangle").performClick()
+        settle()
+        stroke((0..10).map { i -> Offset(w * (0.15f + 0.45f * i / 10f), h * (0.55f + 0.3f * i / 10f)) })
+        shot("08a-selection")
+
+        // Move and transform the selected part: drag it, turn it, flip it, then Done.
         rule.onNodeWithTag("tool_transform").performClick()
         settle()
         rule.onNodeWithTag("transform_bar").assertExists()
@@ -181,6 +190,8 @@ class AppFlowTest {
         settle()
         assertTrue(rule.onAllNodes(hasTestTag("transform_bar")).fetchSemanticsNodes().isEmpty())
         shot("08d-transform-done")
+        rule.onNodeWithTag("select_none").performClick()
+        settle()
 
         // Back to the gallery: the artwork must be saved with both layers.
         rule.onNodeWithTag("tool_gallery").performClick()

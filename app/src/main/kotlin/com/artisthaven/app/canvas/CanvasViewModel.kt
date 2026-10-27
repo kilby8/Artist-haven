@@ -15,6 +15,7 @@ import com.artisthaven.app.data.ExportFormat
 import com.artisthaven.app.data.Exporter
 import com.artisthaven.app.data.ProjectStore
 import com.artisthaven.app.data.Settings
+import com.artisthaven.engine.Editor
 import com.artisthaven.engine.brush.BrushLibrary
 import com.artisthaven.engine.brush.BrushPreset
 import com.artisthaven.engine.document.LayerProps
@@ -34,7 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class ToolMode(val slot: String) {
-    BRUSH("brush"), SMUDGE("smudge"), ERASER("eraser"), FILL("fill"), EYEDROPPER("eyedropper");
+    BRUSH("brush"), SMUDGE("smudge"), ERASER("eraser"), FILL("fill"), EYEDROPPER("eyedropper"), SELECT("select");
 
     val engineTool: Tool
         get() = when (this) {
@@ -45,6 +46,11 @@ enum class ToolMode(val slot: String) {
 }
 
 enum class Panel { BRUSHES, COLORS, LAYERS, ACTIONS }
+
+/** How the selection tool picks an area. */
+enum class SelectShape(val label: String) {
+    FREEHAND("Freehand"), RECTANGLE("Rectangle"), ELLIPSE("Ellipse"), AUTOMATIC("Automatic")
+}
 
 /** A move/transform in progress: the layer's original pixel area and where it is going. */
 data class TransformUi(
@@ -82,10 +88,12 @@ data class CanvasUiState(
     val message: String? = null,
     val busy: Boolean = false,
     val transform: TransformUi? = null,
+    val selectShape: SelectShape = SelectShape.FREEHAND,
+    val selectMode: Editor.SelectMode = Editor.SelectMode.REPLACE,
 ) {
     /** Brush used by the current (or last painting) tool. */
     fun brushFor(mode: ToolMode): BrushPreset {
-        val slot = if (mode == ToolMode.FILL || mode == ToolMode.EYEDROPPER) ToolMode.BRUSH.slot else mode.slot
+        val slot = if (mode == ToolMode.FILL || mode == ToolMode.EYEDROPPER || mode == ToolMode.SELECT) ToolMode.BRUSH.slot else mode.slot
         return BrushLibrary.byId(brushIds[slot])
     }
 
@@ -164,7 +172,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
     /** Loads the remembered size and opacity for the brush in a tool slot. */
     private fun withSlotValues(s: CanvasUiState, mode: ToolMode): CanvasUiState {
         val brush = s.brushFor(mode)
-        val slot = if (mode == ToolMode.FILL || mode == ToolMode.EYEDROPPER) ToolMode.BRUSH.slot else mode.slot
+        val slot = if (mode == ToolMode.FILL || mode == ToolMode.EYEDROPPER || mode == ToolMode.SELECT) ToolMode.BRUSH.slot else mode.slot
         val defaultOpacity = if (mode == ToolMode.SMUDGE) 0.8f else brush.defaultOpacity
         return s.copy(
             size = settings.size(slot, brush.id, brush.defaultSize),
@@ -183,7 +191,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
                 lastPaintTool = if (mode in setOf(ToolMode.BRUSH, ToolMode.SMUDGE, ToolMode.ERASER)) mode else s.lastPaintTool,
                 panel = if (reopenLibrary) (if (s.panel == Panel.BRUSHES) null else Panel.BRUSHES) else null,
             )
-            if (mode == ToolMode.FILL || mode == ToolMode.EYEDROPPER) next else withSlotValues(next, mode)
+            if (mode == ToolMode.FILL || mode == ToolMode.EYEDROPPER || mode == ToolMode.SELECT) next else withSlotValues(next, mode)
         }
     }
 
@@ -265,6 +273,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
     fun touchAction(): TouchAction = if (_state.value.transform != null) TouchAction.TRANSFORM else when (_state.value.tool) {
         ToolMode.FILL -> TouchAction.FILL
         ToolMode.EYEDROPPER -> TouchAction.EYEDROPPER
+        ToolMode.SELECT -> TouchAction.SELECT
         else -> TouchAction.PAINT
     }
 
@@ -302,6 +311,30 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
         val s = _state.value
         host?.fill(x, y, s.color, s.fillTolerance, s.fillAllLayers)
     }
+
+    // ---- Selection --------------------------------------------------------------------------------
+
+    fun setSelectShape(shape: SelectShape) = _state.update { it.copy(selectShape = shape) }
+    fun setSelectMode(mode: Editor.SelectMode) = _state.update { it.copy(selectMode = mode) }
+
+    /** A finished lasso, rectangle or ellipse outline in canvas pixels. */
+    fun selectOutline(xy: FloatArray) {
+        if (xy.size < 6) return
+        host?.selectPolygon(xy, _state.value.selectMode)
+    }
+
+    /** Automatic selection: tap an area of colour. */
+    fun selectAt(x: Int, y: Int) {
+        val s = _state.value
+        host?.selectSimilar(x, y, s.fillTolerance, s.fillAllLayers, s.selectMode)
+    }
+
+    fun selectAll() = host?.selectAll()
+    fun deselect() = host?.deselect()
+    fun invertSelection() = host?.invertSelection()
+    fun clearSelected() = host?.clearSelected()
+    fun fillSelection() = host?.fillSelection(_state.value.color)
+    fun selectionToNewLayer(cut: Boolean) = host?.selectionToNewLayer(cut)
 
     // ---- Move and transform -----------------------------------------------------------------------
 

@@ -36,6 +36,7 @@ data class HostState(
     val lastSavedAt: Long = 0L,
     /** A move/transform is in progress on the engine side. */
     val transforming: Boolean = false,
+    val hasSelection: Boolean = false,
 )
 
 /**
@@ -158,6 +159,36 @@ class EngineHost(
         apply(editor.cancelTransform(), publish = true)
     }
 
+    // ---- Selection ------------------------------------------------------------------------------
+
+    /**
+     * How dim each canvas pixel is drawn because it's outside the selection (0 = selected), or
+     * null with no selection. [selectionVersion] changes whenever it does.
+     */
+    @Volatile var selectionOverlay: ByteArray? = null
+        private set
+    @Volatile var selectionVersion = 0
+        private set
+    private var overlayFor: Any? = null
+
+    private fun updateSelectionOverlay() {
+        val sel = doc.selection
+        if (sel === overlayFor) return
+        overlayFor = sel
+        selectionOverlay = sel?.toBytes()?.also { b -> for (i in b.indices) b[i] = (255 - (b[i].toInt() and 0xFF)).toByte() }
+        selectionVersion++
+    }
+
+    fun selectPolygon(xy: FloatArray, mode: Editor.SelectMode) = run { apply(editor.selectPolygon(xy, mode), publish = true) }
+    fun selectSimilar(x: Int, y: Int, tolerance: Float, allLayers: Boolean, mode: Editor.SelectMode) =
+        run { apply(editor.selectSimilar(x, y, tolerance, allLayers, mode), publish = true) }
+    fun selectAll() = run { apply(editor.selectAll(), publish = true) }
+    fun deselect() = run { apply(editor.deselect(), publish = true) }
+    fun invertSelection() = run { apply(editor.invertSelection(), publish = true) }
+    fun clearSelected() = run { markLayer(doc.activeLayerId); apply(editor.clearSelected(), publish = true) }
+    fun fillSelection(color: Int) = run { markLayer(doc.activeLayerId); apply(editor.fillSelection(color), publish = true) }
+    fun selectionToNewLayer(cut: Boolean) = run { markAll(); apply(editor.selectionToNewLayer(cut), publish = true) }
+
     fun undo() = run { markAll(); apply(editor.undo(), publish = true) }
 
     fun redo() = run { markAll(); apply(editor.redo(), publish = true) }
@@ -248,6 +279,10 @@ class EngineHost(
         } else if (change.layersChanged) {
             frame()
         }
+        if (overlayFor !== doc.selection) {
+            updateSelectionOverlay()
+            frame()
+        }
         if (publish || change.layersChanged) {
             publish()
             if (editor.revision != savedRevision) scheduleSave()
@@ -291,6 +326,7 @@ class EngineHost(
             saving = false,
             lastSavedAt = lastSavedAt,
             transforming = editor.isTransforming,
+            hasSelection = doc.selection != null,
         )
         main.post { onState?.invoke(state) }
     }

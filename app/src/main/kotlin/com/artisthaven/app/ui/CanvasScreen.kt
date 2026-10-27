@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.HighlightAlt
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -73,6 +74,8 @@ import com.artisthaven.app.canvas.CanvasView
 import com.artisthaven.app.canvas.CanvasViewModel
 import com.artisthaven.app.canvas.Panel
 import com.artisthaven.app.canvas.ToolMode
+import com.artisthaven.app.canvas.SelectShape
+import com.artisthaven.engine.Editor
 import com.artisthaven.app.canvas.TouchAction
 import com.artisthaven.app.ui.theme.Haven
 import com.artisthaven.engine.stroke.InputPoint
@@ -136,6 +139,9 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                         override fun fingerPaintingAllowed(): Boolean = vm.state.value.fingerPainting
                         override fun onStylusDetected() = vm.onStylusDetected()
                         override fun transformTo(m: Affine) = vm.updateTransform(m)
+                        override fun selectShape(): SelectShape = vm.state.value.selectShape
+                        override fun selectOutline(xy: FloatArray) = vm.selectOutline(xy)
+                        override fun selectAt(x: Int, y: Int) { vm.selectAt(x, y) }
                     }).also {
                         it.leftInset = 64f * ctx.resources.displayMetrics.density
                         canvasView = it
@@ -166,6 +172,8 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                     maxSize = state.activeBrush.maxSize,
                     opacity = state.opacity,
                     eyedropperActive = state.tool == ToolMode.EYEDROPPER,
+                    fillActive = state.tool == ToolMode.FILL,
+                    onFill = { vm.selectTool(if (state.tool == ToolMode.FILL) state.lastPaintTool else ToolMode.FILL) },
                     canUndo = state.host.canUndo,
                     canRedo = state.host.canRedo,
                     onUndo = { vm.undo() },
@@ -212,6 +220,14 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
             }
         }
 
+        val bottom = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp)
+        if (state.transform == null && state.tool == ToolMode.SELECT) {
+            SelectionBar(bottom, state, vm)
+        } else if (state.transform == null && state.host.hasSelection) {
+            Row(bottom.clip(RoundedCornerShape(14.dp)).background(Haven.bar).padding(horizontal = 4.dp)) {
+                SmallAction("Deselect", "deselect_quick", onClick = { vm.deselect() })
+            }
+        }
         state.transform?.let { t ->
             TransformBar(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
@@ -261,13 +277,13 @@ private fun TopBar(
     ) {
         BarButton(Icons.Filled.GridView, "Gallery", onClick = onGallery)
         BarButton(Icons.Filled.Build, "Actions", selected = state.panel == Panel.ACTIONS, onClick = onActions)
+        BarButton(Icons.Filled.HighlightAlt, "Select", selected = state.transform == null && state.tool == ToolMode.SELECT) { onTool(ToolMode.SELECT) }
         BarButton(Icons.Filled.OpenWith, "Transform", selected = state.transform != null, onClick = onTransform)
         Spacer(Modifier.weight(1f))
         val painting = state.transform == null
         BarButton(Icons.Filled.Brush, "Paint", selected = painting && state.tool == ToolMode.BRUSH) { onTool(ToolMode.BRUSH) }
         BarButton(Icons.Filled.TouchApp, "Smudge", selected = painting && state.tool == ToolMode.SMUDGE) { onTool(ToolMode.SMUDGE) }
         BarButton(Icons.Filled.AutoFixNormal, "Erase", selected = painting && state.tool == ToolMode.ERASER) { onTool(ToolMode.ERASER) }
-        BarButton(Icons.Filled.FormatColorFill, "Fill", selected = painting && state.tool == ToolMode.FILL) { onTool(ToolMode.FILL) }
         BarButton(Icons.Filled.Layers, "Layers", selected = state.panel == Panel.LAYERS, onClick = onLayers)
         Box(
             Modifier
@@ -280,6 +296,50 @@ private fun TopBar(
                 .semantics { contentDescription = "Colours" }
                 .testTag("tool_colors"),
         )
+    }
+}
+
+/** Selection tool options: how to select, how to combine, and what to do with the selection. */
+@Composable
+private fun SelectionBar(modifier: Modifier, state: com.artisthaven.app.canvas.CanvasUiState, vm: CanvasViewModel) {
+    Column(
+        modifier
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Haven.bar)
+            .padding(4.dp)
+            .testTag("selection_bar"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            SelectShape.entries.forEach { shape ->
+                SmallAction(
+                    shape.label,
+                    "select_${shape.name.lowercase()}",
+                    onClick = { vm.setSelectShape(shape) },
+                    color = if (state.selectShape == shape) Haven.accent else Haven.text,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            listOf(Editor.SelectMode.REPLACE to "New", Editor.SelectMode.ADD to "Add", Editor.SelectMode.SUBTRACT to "Remove").forEach { (m, label) ->
+                SmallAction(
+                    label,
+                    "select_mode_${m.name.lowercase()}",
+                    onClick = { vm.setSelectMode(m) },
+                    color = if (state.selectMode == m) Haven.accent else Haven.textDim,
+                )
+            }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            val has = state.host.hasSelection
+            SmallAction("All", "select_all", onClick = { vm.selectAll() })
+            SmallAction("Invert", "select_invert", onClick = { vm.invertSelection() }, color = if (has) Haven.text else Haven.textDim)
+            SmallAction("Clear", "select_clear", onClick = { vm.clearSelected() }, color = if (has) Haven.text else Haven.textDim)
+            SmallAction("Fill", "select_fill", onClick = { vm.fillSelection() }, color = if (has) Haven.text else Haven.textDim)
+            SmallAction("Copy", "select_copy", onClick = { vm.selectionToNewLayer(cut = false) }, color = if (has) Haven.text else Haven.textDim)
+            SmallAction("Cut", "select_cut", onClick = { vm.selectionToNewLayer(cut = true) }, color = if (has) Haven.text else Haven.textDim)
+            SmallAction("Deselect", "select_none", onClick = { vm.deselect() }, color = if (has) Haven.accent else Haven.textDim)
+        }
     }
 }
 
@@ -299,20 +359,23 @@ private fun TransformBar(
     Row(
         modifier
             .padding(horizontal = 8.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(Haven.bar)
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 4.dp, vertical = 2.dp)
             .testTag("transform_bar"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SmallAction("Flip ↔", "transform_flip_h", onFlipH)
-        SmallAction("Flip ↕", "transform_flip_v", onFlipV)
-        SmallAction("Turn 90°", "transform_rotate", onRotate)
-        SmallAction("Reset", "transform_reset", onReset)
-        val next = Resample.entries[(quality.ordinal + 1) % Resample.entries.size]
-        SmallAction(quality.displayName, "transform_quality", onClick = { onQuality(next) })
-        SmallAction("Cancel", "transform_cancel", onCancel)
+        // Options scroll if the screen is narrow; Cancel and Done always stay in reach.
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            SmallAction("Flip ↔", "transform_flip_h", onFlipH)
+            SmallAction("Flip ↕", "transform_flip_v", onFlipV)
+            SmallAction("90°", "transform_rotate", onRotate)
+            val next = Resample.entries[(quality.ordinal + 1) % Resample.entries.size]
+            SmallAction(quality.displayName, "transform_quality", onClick = { onQuality(next) })
+            SmallAction("Reset", "transform_reset", onReset)
+        }
+        SmallAction("Cancel", "transform_cancel", onCancel, color = Haven.textDim)
         SmallAction("Done", "transform_done", onDone, color = Haven.accent)
     }
 }
@@ -360,6 +423,8 @@ private fun Sidebar(
     maxSize: Float,
     opacity: Float,
     eyedropperActive: Boolean,
+    fillActive: Boolean,
+    onFill: () -> Unit,
     canUndo: Boolean,
     canRedo: Boolean,
     onUndo: () -> Unit,
@@ -386,6 +451,9 @@ private fun Sidebar(
         )
         IconButton(onClick = onEyedropper, modifier = Modifier.size(36.dp).testTag("tool_eyedropper")) {
             Icon(Icons.Filled.Colorize, "Eyedropper", tint = if (eyedropperActive) Haven.accent else Haven.text)
+        }
+        IconButton(onClick = onFill, modifier = Modifier.size(36.dp).testTag("tool_fill")) {
+            Icon(Icons.Filled.FormatColorFill, "Fill", tint = if (fillActive) Haven.accent else Haven.text)
         }
         VerticalSlider(
             value = opacity,
