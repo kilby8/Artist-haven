@@ -303,6 +303,28 @@ class Editor(val doc: Document, val history: History = History()) {
         return changed(history.execute(doc, AddLayerCommand(index, layer, doc.activeLayerId)))
     }
 
+    /**
+     * Adds a picture as a new layer above the active one, centred on the canvas. [pixels] are
+     * straight ARGB, [width] x [height]; anything past the canvas edge is cropped.
+     */
+    fun addImageLayer(name: String, pixels: IntArray, width: Int, height: Int): Change {
+        settle()
+        val layer = doc.createLayer(name)
+        val ox = (doc.width - width) / 2
+        val oy = (doc.height - height) / 2
+        for (y in 0 until height) {
+            val dy = y + oy
+            if (dy < 0 || dy >= doc.height) continue
+            for (x in 0 until width) {
+                val c = pixels[y * width + x]
+                if (c ushr 24 == 0) continue
+                layer.surface.setPixel(x + ox, dy, Pixels.premultiply(c))
+            }
+        }
+        val index = doc.activeIndex + 1
+        return changed(history.execute(doc, AddLayerCommand(index, layer, doc.activeLayerId)))
+    }
+
     fun duplicateLayer(id: String): Change {
         settle()
         val src = doc.layer(id) ?: return Change.NONE

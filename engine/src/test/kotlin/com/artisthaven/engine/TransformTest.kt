@@ -131,3 +131,20 @@ class TransformTest {
         assertEquals(255, Pixels.alpha(doc.activeLayer!!.surface.getPixel(30, 40)))
     }
 }
+
+class ImageImportTest {
+    @Test
+    fun photoBecomesACentredLayerAndUndoes() {
+        val doc = Document.blank(100, 80)
+        val editor = Editor(doc)
+        val px = IntArray(40 * 20) { 0x80FF0000.toInt() }
+        editor.addImageLayer("Photo", px, 40, 20)
+        assertEquals(2, doc.layers.size)
+        assertEquals("Photo", doc.activeLayer!!.name)
+        val b = doc.activeLayer!!.surface.contentBounds()!!
+        assertEquals(com.artisthaven.engine.raster.IRect(30, 30, 70, 50), b)
+        assertEquals(0x80, Pixels.alpha(doc.activeLayer!!.surface.getPixel(50, 40)))
+        editor.undo()
+        assertEquals(1, doc.layers.size)
+    }
+}

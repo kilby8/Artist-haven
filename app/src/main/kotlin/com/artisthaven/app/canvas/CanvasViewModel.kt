@@ -96,6 +96,8 @@ data class CanvasUiState(
     val studio: BrushPreset? = null,
     /** Bumped when custom brushes change, so the library list refreshes. */
     val brushesVersion: Int = 0,
+    /** Picture shown in the floating reference window. */
+    val reference: android.graphics.Bitmap? = null,
 ) {
     /** Brush used by the current (or last painting) tool. */
     fun brushFor(mode: ToolMode): BrushPreset {
@@ -319,6 +321,45 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
         val s = _state.value
         host?.fill(x, y, s.color, s.fillTolerance, s.fillAllLayers)
     }
+
+    // ---- Photos and reference ---------------------------------------------------------------------
+
+    /** Puts a photo on a new layer, fitted inside the canvas, and starts placing it. */
+    fun importPhoto(uri: android.net.Uri) {
+        val h = host ?: return
+        commitTransform()
+        _state.update { it.copy(busy = true, panel = null) }
+        viewModelScope.launch {
+            val bmp = withContext(Dispatchers.IO) {
+                runCatching { com.artisthaven.app.data.ImageImport.decode(getApplication(), uri, h.width, h.height) }.getOrNull()
+            }
+            if (bmp == null) {
+                _state.update { it.copy(busy = false) }
+                showMessage("Couldn't open that picture")
+                return@launch
+            }
+            val px = IntArray(bmp.width * bmp.height)
+            bmp.getPixels(px, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+            h.addImageLayer("Photo", px, bmp.width, bmp.height) {
+                _state.update { it.copy(busy = false) }
+                toggleTransform()
+            }
+        }
+    }
+
+    /** Shows a picture in a floating window to paint from, like Procreate's Reference. */
+    fun openReference(uri: android.net.Uri) {
+        _state.update { it.copy(panel = null) }
+        viewModelScope.launch {
+            val bmp = withContext(Dispatchers.IO) {
+                runCatching { com.artisthaven.app.data.ImageImport.decode(getApplication(), uri, 1600, 1600) }.getOrNull()
+            }
+            if (bmp == null) showMessage("Couldn't open that picture")
+            else _state.update { it.copy(reference = bmp) }
+        }
+    }
+
+    fun closeReference() = _state.update { it.copy(reference = null) }
 
     // ---- Brush Studio ---------------------------------------------------------------------------
 

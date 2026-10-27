@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -242,6 +244,8 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                 onDone = vm::commitTransform,
             )
         }
+
+        state.reference?.let { ref -> ReferenceWindow(ref, onClose = vm::closeReference) }
 
         state.studio?.let { draft ->
             BrushStudio(
@@ -538,5 +542,49 @@ fun VerticalSlider(value: Float, onChange: (Float) -> Unit, label: String, reado
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             )
         }
+    }
+}
+
+/**
+ * A floating picture to paint from. Drag the bar to move it; tap the size button to cycle small,
+ * medium and large.
+ */
+@Composable
+private fun ReferenceWindow(image: android.graphics.Bitmap, onClose: () -> Unit) {
+    var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset(0f, 0f)) }
+    var big by remember { mutableStateOf(1) }
+    val width = listOf(140.dp, 200.dp, 280.dp)[big]
+    val aspect = image.width / image.height.toFloat()
+    Column(
+        Modifier
+            .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
+            .padding(start = 76.dp, top = 120.dp)
+            .width(width)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Haven.panel)
+            .testTag("reference_window"),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(Haven.bar)
+                .pointerInput(Unit) {
+                    androidx.compose.foundation.gestures.detectDragGestures { change, drag ->
+                        change.consume()
+                        offset += drag
+                    }
+                }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Reference", color = Haven.textDim, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text("⤢", color = Haven.text, fontSize = 16.sp, modifier = Modifier.clickable { big = (big + 1) % 3 }.padding(6.dp))
+            Text("✕", color = Haven.text, fontSize = 14.sp, modifier = Modifier.clickable(onClick = onClose).padding(6.dp).testTag("reference_close"))
+        }
+        androidx.compose.foundation.Image(
+            image.asImageBitmap(),
+            contentDescription = "Reference picture",
+            modifier = Modifier.fillMaxWidth().aspectRatio(aspect),
+        )
     }
 }

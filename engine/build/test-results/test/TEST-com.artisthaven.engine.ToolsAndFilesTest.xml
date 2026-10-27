@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.artisthaven.engine.ToolsAndFilesTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-27T04:20:14.174Z" hostname="vm" time="1.382">
+<testsuite name="com.artisthaven.engine.ToolsAndFilesTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-27T04:24:59.430Z" hostname="vm" time="1.289">
   <properties/>
-  <testcase name="psdHasHeaderAndAllLayers" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.141"/>
-  <testcase name="longStrokeIsFastEnough" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.695"/>
-  <testcase name="quickShapeRecognisesLinesCirclesAndRectangles" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.008"/>
+  <testcase name="psdHasHeaderAndAllLayers" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.157"/>
+  <testcase name="longStrokeIsFastEnough" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.613"/>
+  <testcase name="quickShapeRecognisesLinesCirclesAndRectangles" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.006"/>
   <testcase name="packBitsDecodesBack" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.0"/>
-  <testcase name="quickShapeReplacesTheStrokeInPlace" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.007"/>
-  <testcase name="projectRoundTripsExactly" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.072"/>
-  <testcase name="renderBrushSheet" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.432"/>
+  <testcase name="quickShapeReplacesTheStrokeInPlace" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.004"/>
+  <testcase name="projectRoundTripsExactly" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.065"/>
+  <testcase name="renderBrushSheet" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.418"/>
   <testcase name="wetBrushesMixWithPaintUnderneathButStayOpaqueOnBareCanvas" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.025"/>
-  <system-out><![CDATA[Long wet stroke (601 points, 80 px): 324.0 ms
+  <system-out><![CDATA[Long wet stroke (601 points, 80 px): 296.2 ms
 ]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

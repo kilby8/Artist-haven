@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,14 @@ fun ActionsPanel(state: CanvasUiState, vm: CanvasViewModel, onFit: () -> Unit, o
         else if (!granted) vm.showMessage("Storage permission is needed to save to your gallery")
     }
 
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.importPhoto(uri)
+    }
+    val pickReference = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.openReference(uri)
+    }
+    val imagesOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+
     fun save(format: ExportFormat) {
         val needsPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
@@ -82,6 +91,12 @@ fun ActionsPanel(state: CanvasUiState, vm: CanvasViewModel, onFit: () -> Unit, o
                     modifier = Modifier.testTag("share_${f.name.lowercase()}"),
                 ) { Text("Share") }
             }
+        }
+
+        Section("Add")
+        Row(Modifier.padding(horizontal = 8.dp)) {
+            TextButton(onClick = { pickPhoto.launch(imagesOnly) }, modifier = Modifier.testTag("insert_photo")) { Text("Insert a photo") }
+            TextButton(onClick = { pickReference.launch(imagesOnly) }, modifier = Modifier.testTag("reference_image")) { Text("Reference image") }
         }
 
         Section("Canvas")

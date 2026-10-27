@@ -196,6 +196,13 @@ class EngineHost(
     // ---- Layers ---------------------------------------------------------------------------------
 
     fun addLayer() = run { apply(editor.addLayer(), publish = true) }
+    /** Adds a photo as a new layer; [done] runs on the main thread once it's in. */
+    fun addImageLayer(name: String, pixels: IntArray, w: Int, h: Int, done: () -> Unit) = run {
+        markAll()
+        apply(editor.addImageLayer(name, pixels, w, h), publish = true)
+        main.post(done)
+    }
+
     fun duplicateLayer(id: String) = run { markAll(); apply(editor.duplicateLayer(id), publish = true) }
     fun deleteLayer(id: String) = run { apply(editor.deleteLayer(id), publish = true) }
     fun selectLayer(id: String) = run { apply(editor.selectLayer(id), publish = true) }
