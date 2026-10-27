@@ -73,7 +73,7 @@ fun BrushStudio(
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(brush, color) {
         delay(60)
-        preview = withContext(Dispatchers.Default) { BrushPreviews.render(brush, color or 0xFF000000.toInt()) }
+        preview = withContext(Dispatchers.Default) { BrushPreviews.render(brush) }
     }
 
     Column(

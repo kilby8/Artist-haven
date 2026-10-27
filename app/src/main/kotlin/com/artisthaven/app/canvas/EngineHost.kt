@@ -22,7 +22,7 @@ import com.artisthaven.engine.tools.Resample
 import java.util.concurrent.atomic.AtomicReference
 
 /** A layer as the layers panel shows it. */
-data class LayerInfo(val id: String, val props: LayerProps, val thumbnail: Bitmap?)
+data class LayerInfo(val id: String, val props: LayerProps, val thumbnail: Bitmap?, val maskThumbnail: Bitmap? = null)
 
 /** Snapshot of the document for the UI. */
 data class HostState(
@@ -37,6 +37,8 @@ data class HostState(
     /** A move/transform is in progress on the engine side. */
     val transforming: Boolean = false,
     val hasSelection: Boolean = false,
+    /** Painting goes to the active layer's mask. */
+    val editingMask: Boolean = false,
 )
 
 /**
@@ -203,6 +205,11 @@ class EngineHost(
         main.post(done)
     }
 
+    fun addMask(id: String) = run { markLayer(id); apply(editor.addMask(id), publish = true) }
+    fun deleteMask(id: String) = run { markLayer(id); apply(editor.deleteMask(id), publish = true) }
+    fun applyMask(id: String) = run { markLayer(id); apply(editor.applyMask(id), publish = true) }
+    fun setEditingMask(on: Boolean) = run { apply(editor.setEditingMask(on), publish = true) }
+
     fun duplicateLayer(id: String) = run { markAll(); apply(editor.duplicateLayer(id), publish = true) }
     fun deleteLayer(id: String) = run { apply(editor.deleteLayer(id), publish = true) }
     fun selectLayer(id: String) = run { apply(editor.selectLayer(id), publish = true) }
@@ -320,9 +327,18 @@ class EngineHost(
                 val (px, w, h) = Compositor.layerThumbnail(doc, layer.id, THUMB)
                 Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).also { thumbCache[key] = editor.revision to it }
             }
-            LayerInfo(layer.id, layer.props, thumb)
+            val maskThumb = if (layer.mask == null) null else {
+                val mk = "mask:" + layer.id
+                val mc = thumbCache[mk]
+                if (mc != null && mc.first == editor.revision) mc.second else {
+                    Compositor.maskThumbnail(doc, layer.id, THUMB)?.let { (px, w, h) ->
+                        Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).also { thumbCache[mk] = editor.revision to it }
+                    }
+                }
+            }
+            LayerInfo(layer.id, layer.props, thumb, maskThumb)
         }
-        thumbCache.keys.retainAll(doc.layers.map { it.id }.toSet())
+        thumbCache.keys.retainAll(doc.layers.flatMap { listOf(it.id, "mask:" + it.id) }.toSet())
         val state = HostState(
             layers = layers,
             activeLayerId = doc.activeLayer?.id ?: "",
@@ -334,6 +350,7 @@ class EngineHost(
             lastSavedAt = lastSavedAt,
             transforming = editor.isTransforming,
             hasSelection = doc.selection != null,
+            editingMask = doc.activeLayer?.let { doc.paintsMask(it) } ?: false,
         )
         main.post { onState?.invoke(state) }
     }

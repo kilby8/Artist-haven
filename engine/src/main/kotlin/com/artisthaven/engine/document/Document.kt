@@ -19,6 +19,15 @@ class Document(
     /** Limits painting, fills and transforms to part of the canvas; null means everything. */
     var selection: Selection? = null
 
+    /** When true, painting tools work on the active layer's mask (if it has one). */
+    var editingMask: Boolean = false
+
+    /** True if edits to [layer] go to its mask rather than its pixels. */
+    fun paintsMask(layer: Layer): Boolean = editingMask && layer.mask != null && layer.id == activeLayer?.id
+
+    /** The surface painting tools change on [layer]: its mask while editing the mask. */
+    fun paintSurface(layer: Layer): TiledSurface = if (paintsMask(layer)) layer.mask!! else layer.surface
+
     private var idCounter = 0
 
     val bounds: IRect get() = IRect(0, 0, width, height)

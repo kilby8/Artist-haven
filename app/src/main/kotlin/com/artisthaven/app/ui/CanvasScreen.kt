@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -220,6 +221,24 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                         }
                     }
                 }
+            }
+        }
+
+        if (state.host.editingMask && state.studio == null) {
+            // A clear reminder that brushes are painting the mask, not the picture.
+            Row(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 60.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Haven.bar)
+                    .padding(start = 12.dp)
+                    .testTag("mask_banner"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Painting the mask: black hides, white shows", color = Haven.text, fontSize = 12.sp)
+                SmallAction("Done", "mask_done", onClick = { vm.setEditingMask(false) }, color = Haven.accent)
             }
         }
 
@@ -569,7 +588,7 @@ private fun ReferenceWindow(image: android.graphics.Bitmap, onClose: () -> Unit)
                 .fillMaxWidth()
                 .background(Haven.bar)
                 .pointerInput(Unit) {
-                    androidx.compose.foundation.gestures.detectDragGestures { change, drag ->
+                    detectDragGestures { change, drag ->
                         change.consume()
                         offset += drag
                     }

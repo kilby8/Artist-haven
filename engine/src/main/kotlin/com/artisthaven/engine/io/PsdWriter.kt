@@ -55,8 +55,9 @@ object PsdWriter {
             val rect = layer.surface.contentBounds() ?: IRect(0, 0, 0, 0)
             val px = IntArray(rect.width * rect.height)
             if (!rect.isEmpty) {
-                layer.surface.read(rect, px)
-                for (i in px.indices) px[i] = Pixels.unpremultiply(px[i])
+                // Masks are baked in, so the PSD looks the same in any app.
+                var i = 0
+                for (y in rect.top until rect.bottom) for (x in rect.left until rect.right) px[i++] = Pixels.unpremultiply(layer.maskedPixel(x, y))
             }
             entries += Entry(
                 layer.name, rect, px, (layer.opacity * 255f + 0.5f).toInt(),

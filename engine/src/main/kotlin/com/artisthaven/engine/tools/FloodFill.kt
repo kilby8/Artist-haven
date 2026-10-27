@@ -29,22 +29,24 @@ object FloodFill {
     ): Pair<IRect, Map<Int, IntArray?>>? {
         val (rect, cover) = region(doc, layer, x, y, tolerance, sampleAllLayers) ?: return null
         val sel = doc.selection
+        val target = doc.paintSurface(layer)
+        val alphaLock = layer.alphaLock && !doc.paintsMask(layer)
         val before = HashMap<Int, IntArray?>()
-        for (index in layer.surface.tilesIn(rect)) before[index] = layer.surface.copyTile(index)
+        for (index in target.tilesIn(rect)) before[index] = target.copyTile(index)
         val src = Pixels.premultiply(color)
         for (yy in rect.top until rect.bottom) for (xx in rect.left until rect.right) {
             var a = cover[(yy - rect.top) * rect.width + (xx - rect.left)] * opacity
             if (sel != null) a *= sel.coverage(xx, yy)
             if (a <= 0f) continue
-            val d = layer.surface.getPixel(xx, yy)
-            val out = if (layer.alphaLock) {
+            val d = target.getPixel(xx, yy)
+            val out = if (alphaLock) {
                 val da = Pixels.alpha(d)
                 if (da == 0) continue
                 Pixels.lerp(d, Pixels.scale(src, da / 255f).let { Pixels.pack(da, Pixels.red(it), Pixels.green(it), Pixels.blue(it)) }, a)
             } else {
                 Pixels.srcOver(d, Pixels.scale(src, a))
             }
-            layer.surface.setPixel(xx, yy, out)
+            target.setPixel(xx, yy, out)
         }
         return rect to before
     }

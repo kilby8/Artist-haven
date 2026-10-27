@@ -28,18 +28,21 @@ class PixelCommand(
     private val indices: IntArray,
     private val before: Array<IntArray?>,
     private val after: Array<IntArray?>,
+    /** True if this changed the layer's mask rather than its pixels. */
+    private val onMask: Boolean = false,
 ) : Command {
     override val bytes: Long =
         (before.count { it != null } + after.count { it != null }) * TiledSurface.TILE_BYTES + 64
 
     private fun put(doc: Document, tiles: Array<IntArray?>): Change {
         val layer = doc.layer(layerId) ?: return Change.NONE
+        val surface = (if (onMask) layer.mask else layer.surface) ?: return Change.NONE
         var dirty: IRect? = null
         for (k in indices.indices) {
-            layer.surface.setTile(indices[k], tiles[k]?.copyOf())
-            dirty = IRect.unionOf(dirty, layer.surface.tileRect(indices[k]))
+            surface.setTile(indices[k], tiles[k]?.copyOf())
+            dirty = IRect.unionOf(dirty, surface.tileRect(indices[k]))
         }
-        return Change(dirty, false)
+        return Change(dirty, onMask)
     }
 
     override fun apply(doc: Document) = put(doc, after)
@@ -50,14 +53,15 @@ class PixelCommand(
          * Builds a command from saved "before" tiles and the layer's current tiles. Returns null if
          * nothing actually changed.
          */
-        fun capture(label: String, layer: Layer, before: Map<Int, IntArray?>): PixelCommand? {
+        fun capture(label: String, layer: Layer, before: Map<Int, IntArray?>, onMask: Boolean = false): PixelCommand? {
+            val surface = (if (onMask) layer.mask else layer.surface) ?: return null
             val idx = ArrayList<Int>()
             val b = ArrayList<IntArray?>()
             val a = ArrayList<IntArray?>()
             for ((index, old) in before) {
-                val now = layer.surface.tile(index)
-                if (now != null && now.all { it == 0 }) layer.surface.setTile(index, null)
-                val current = layer.surface.tile(index)
+                val now = surface.tile(index)
+                if (now != null && now.all { it == 0 }) surface.setTile(index, null)
+                val current = surface.tile(index)
                 if (old == null && current == null) continue
                 if (old != null && current != null && old.contentEquals(current)) continue
                 idx += index
@@ -65,7 +69,7 @@ class PixelCommand(
                 a += current?.copyOf()
             }
             if (idx.isEmpty()) return null
-            return PixelCommand(label, layer.id, idx.toIntArray(), b.toTypedArray(), a.toTypedArray())
+            return PixelCommand(label, layer.id, idx.toIntArray(), b.toTypedArray(), a.toTypedArray(), onMask)
         }
     }
 }
@@ -233,4 +237,27 @@ class SelectionCommand(private val before: Selection?, private val after: Select
         doc.selection = before
         return Change(null, true)
     }
+}
+
+/** Adds, removes or replaces a layer's mask (and whether the mask is being edited). */
+class MaskCommand(
+    private val layerId: String,
+    private val before: TiledSurface?,
+    private val after: TiledSurface?,
+    private val editingBefore: Boolean,
+    private val editingAfter: Boolean,
+    override val label: String = "Layer mask",
+) : Command {
+    override val bytes: Long =
+        ((before?.nonEmptyTileIndices()?.size ?: 0) + (after?.nonEmptyTileIndices()?.size ?: 0)) * TiledSurface.TILE_BYTES + 64
+
+    private fun set(doc: Document, m: TiledSurface?, editing: Boolean): Change {
+        val layer = doc.layer(layerId) ?: return Change.NONE
+        layer.mask = m
+        doc.editingMask = editing
+        return Change(layer.surface.contentBounds() ?: doc.bounds, true)
+    }
+
+    override fun apply(doc: Document) = set(doc, after, editingAfter)
+    override fun revert(doc: Document) = set(doc, before, editingBefore)
 }

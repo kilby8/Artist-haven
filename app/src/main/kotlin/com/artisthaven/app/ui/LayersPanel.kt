@@ -84,6 +84,11 @@ fun LayersPanel(state: CanvasUiState, vm: CanvasViewModel) {
                 LayerRow(
                     layer = layer,
                     active = active,
+                    editingMask = active && host.editingMask,
+                    onMask = {
+                        if (!active) vm.selectLayer(layer.id)
+                        vm.setEditingMask(!(active && host.editingMask))
+                    },
                     onClick = {
                         if (active) expanded = if (expanded == layer.id) null else layer.id else vm.selectLayer(layer.id)
                     },
@@ -95,6 +100,7 @@ fun LayersPanel(state: CanvasUiState, vm: CanvasViewModel) {
                         isBottom = host.layers.lastOrNull()?.id == layer.id,
                         isTop = host.layers.firstOrNull()?.id == layer.id,
                         vm = vm,
+                        editingMask = host.editingMask,
                         onRename = { renaming = layer },
                     )
                 }
@@ -124,7 +130,14 @@ fun LayersPanel(state: CanvasUiState, vm: CanvasViewModel) {
 }
 
 @Composable
-private fun LayerRow(layer: LayerInfo, active: Boolean, onClick: () -> Unit, onToggleVisible: () -> Unit) {
+private fun LayerRow(
+    layer: LayerInfo,
+    active: Boolean,
+    editingMask: Boolean,
+    onMask: () -> Unit,
+    onClick: () -> Unit,
+    onToggleVisible: () -> Unit,
+) {
     val p = layer.props
     Row(
         Modifier
@@ -140,10 +153,25 @@ private fun LayerRow(layer: LayerInfo, active: Boolean, onClick: () -> Unit, onT
         if (p.clipping) {
             Text("↳", color = Haven.textDim, modifier = Modifier.padding(end = 4.dp))
         }
-        Box(Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, Haven.divider, RoundedCornerShape(6.dp))) {
+        val layerBorder = if (active && !editingMask && layer.maskThumbnail != null) Haven.accent else Haven.divider
+        Box(Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)).border(1.5.dp, layerBorder, RoundedCornerShape(6.dp))) {
             Checkerboard()
             layer.thumbnail?.let {
                 Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            }
+        }
+        // The mask sits beside the layer; tap it to paint on the mask, tap again to go back.
+        layer.maskThumbnail?.let { mask ->
+            Box(
+                Modifier
+                    .padding(start = 4.dp)
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(1.5.dp, if (editingMask) Haven.accent else Haven.divider, RoundedCornerShape(6.dp))
+                    .clickable(onClick = onMask)
+                    .testTag("mask_${layer.id}"),
+            ) {
+                Image(mask.asImageBitmap(), "Layer mask", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
             }
         }
         Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
@@ -167,7 +195,14 @@ private fun LayerRow(layer: LayerInfo, active: Boolean, onClick: () -> Unit, onT
 }
 
 @Composable
-private fun LayerOptions(layer: LayerInfo, isBottom: Boolean, isTop: Boolean, vm: CanvasViewModel, onRename: () -> Unit) {
+private fun LayerOptions(
+    layer: LayerInfo,
+    isBottom: Boolean,
+    isTop: Boolean,
+    vm: CanvasViewModel,
+    editingMask: Boolean,
+    onRename: () -> Unit,
+) {
     var before by remember(layer.id) { mutableStateOf<LayerProps?>(null) }
     var opacity by remember(layer.id, layer.props.opacity) { mutableStateOf(layer.props.opacity) }
     var blendOpen by remember { mutableStateOf(false) }
@@ -233,6 +268,17 @@ private fun LayerOptions(layer: LayerInfo, isBottom: Boolean, isTop: Boolean, vm
                 onClick = { vm.setLayerProps(layer.id) { it.copy(clipping = !it.clipping) } },
                 label = { Text("Clipping mask") },
             )
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (layer.maskThumbnail == null) {
+                TextButton(onClick = { vm.addMask(layer.id) }, modifier = Modifier.testTag("mask_add")) {
+                    Text("Add mask", color = Haven.accent, fontSize = 13.sp)
+                }
+            } else {
+                SmallAction(if (editingMask) "Edit layer" else "Edit mask") { vm.setEditingMask(!editingMask) }
+                SmallAction("Apply mask") { vm.applyMask(layer.id) }
+                SmallAction("Delete mask", color = Haven.danger) { vm.deleteMask(layer.id) }
+            }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             SmallAction("Rename", onClick = onRename)

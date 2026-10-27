@@ -39,7 +39,8 @@ class StrokeSession(
     val params: StrokeParams,
 ) {
     private val brush: BrushPreset = params.brush
-    private val surface: TiledSurface = layer.surface
+    private val onMask: Boolean = doc.paintsMask(layer)
+    private val surface: TiledSurface = doc.paintSurface(layer)
     private val tip: Mask = Textures.tip(brush.tip, brush.hardness)
     private val grain: Mask? = Textures.grain(brush.grain)
     private val glaze: Boolean =
@@ -83,7 +84,7 @@ class StrokeSession(
             dirty = IRect.unionOf(dirty, replay(raw, taperAware = true))
         }
         finished = true
-        val command = PixelCommand.capture(label(), layer, originals)
+        val command = PixelCommand.capture(label(), layer, originals, onMask)
         return StrokeResult(IRect.unionOf(dirty, totalDirty), command)
     }
 
@@ -486,7 +487,7 @@ class StrokeSession(
         val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
         val strokeOpacity = params.opacity.coerceIn(0f, 1f)
         val erase = params.tool == Tool.ERASER
-        val alphaLock = layer.alphaLock && !erase
+        val alphaLock = layer.alphaLock && !erase && !onMask
         val shift = TiledSurface.SHIFT
 
         for (index in surface.tilesIn(rect)) {
@@ -653,7 +654,7 @@ class StrokeSession(
 
         val strength = (amount * (if (smudge) params.opacity else 1f)).coerceIn(0f, 1f)
         val shift = TiledSurface.SHIFT
-        val alphaLock = layer.alphaLock
+        val alphaLock = layer.alphaLock && !onMask
         val useBlend = !smudge && blendMode != BlendMode.NORMAL
         for (index in surface.tilesIn(rect)) {
             originalTile(index)

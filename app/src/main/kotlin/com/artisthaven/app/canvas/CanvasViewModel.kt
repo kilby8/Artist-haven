@@ -507,6 +507,11 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
 
     fun setPaper(color: Int, visible: Boolean) = host?.setPaper(color, visible)
 
+    fun addMask(id: String) = host?.addMask(id)
+    fun deleteMask(id: String) = host?.deleteMask(id)
+    fun applyMask(id: String) = host?.applyMask(id)
+    fun setEditingMask(on: Boolean) = host?.setEditingMask(on)
+
     fun rename(name: String) {
         val n = name.trim().ifEmpty { return }
         host?.rename(n)

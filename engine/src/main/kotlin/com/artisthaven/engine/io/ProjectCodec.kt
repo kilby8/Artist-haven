@@ -27,6 +27,8 @@ data class LayerManifest(
     val alphaLock: Boolean = false,
     val clipping: Boolean = false,
     val file: String,
+    /** File holding the layer mask, if the layer has one. */
+    val maskFile: String? = null,
 )
 
 @Serializable
@@ -76,6 +78,7 @@ object ProjectCodec {
                 alphaLock = it.alphaLock,
                 clipping = it.clipping,
                 file = "layer_${it.id}.bin",
+                maskFile = if (it.mask != null) "mask_${it.id}.bin" else null,
             )
         },
     )
@@ -96,12 +99,15 @@ object ProjectCodec {
         val manifest = manifestFor(doc, name, createdAt, modifiedAt)
         for ((layer, entry) in doc.layers.zip(manifest.layers)) {
             val file = File(dir, entry.file)
-            if (changedLayers != null && layer.id !in changedLayers && file.exists()) continue
+            val maskMissing = entry.maskFile != null && !File(dir, entry.maskFile).exists()
+            if (changedLayers != null && layer.id !in changedLayers && file.exists() && !maskMissing) continue
             atomicWrite(File(dir, entry.file)) { out -> writeSurface(layer.surface, out) }
+            val mask = layer.mask
+            if (mask != null && entry.maskFile != null) atomicWrite(File(dir, entry.maskFile)) { out -> writeSurface(mask, out) }
         }
         writeManifest(dir, manifest)
-        val keep = manifest.layers.map { it.file }.toSet()
-        dir.listFiles { f -> f.name.startsWith("layer_") && f.name.endsWith(".bin") && f.name !in keep }
+        val keep = manifest.layers.flatMap { listOfNotNull(it.file, it.maskFile) }.toSet()
+        dir.listFiles { f -> (f.name.startsWith("layer_") || f.name.startsWith("mask_")) && f.name.endsWith(".bin") && f.name !in keep }
             ?.forEach { it.delete() }
         return manifest
     }
@@ -124,6 +130,12 @@ object ProjectCodec {
             val surface = TiledSurface(m.width, m.height)
             val f = File(dir, entry.file)
             if (f.exists()) f.inputStream().buffered().use { readSurface(surface, it) }
+            val mask = entry.maskFile?.let { name ->
+                TiledSurface(m.width, m.height).also { ms ->
+                    val mf = File(dir, name)
+                    if (mf.exists()) mf.inputStream().buffered().use { readSurface(ms, it) }
+                }
+            }
             doc.layers += Layer(
                 entry.id,
                 LayerProps(
@@ -135,6 +147,7 @@ object ProjectCodec {
                     clipping = entry.clipping,
                 ),
                 surface,
+                mask,
             )
         }
         if (doc.layers.isEmpty()) doc.layers += doc.createLayer("Layer 1")

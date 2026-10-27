@@ -30,6 +30,8 @@ object Compositor {
         val paper = if (withPaper) Pixels.premultiply(doc.paperColor or (0xFF shl 24)) else 0
         val count = visible.size
         val tileData = arrayOfNulls<IntArray>(count)
+        val maskData = arrayOfNulls<IntArray>(count)
+        val hasMask = visible.any { it.mask != null }
         val clipBase = IntArray(count) { -1 }
         var base = -1
         for (i in 0 until count) {
@@ -42,6 +44,7 @@ object Compositor {
             for (tx in (r.left shr shift)..((r.right - 1) shr shift)) {
                 val index = ty * tilesX + tx
                 for (i in 0 until count) tileData[i] = visible[i].surface.tile(index)
+                if (hasMask) for (i in 0 until count) maskData[i] = visible[i].mask?.tile(index)
                 val x0 = maxOf(r.left, tx shl shift)
                 val x1 = minOf(r.right, (tx + 1) shl shift)
                 val y0 = maxOf(r.top, ty shl shift)
@@ -56,9 +59,16 @@ object Compositor {
                             val data = tileData[i] ?: continue
                             var src = data[ti]
                             if (src == 0) continue
+                            val md = maskData[i]
+                            if (md != null && md[ti] != 0) {
+                                src = Pixels.scale(src, Layer.maskVisibility(md[ti]))
+                                if (src == 0) continue
+                            }
                             val cb = clipBase[i]
                             if (cb >= 0) {
-                                val ba = (tileData[cb]?.get(ti) ?: 0) ushr 24
+                                var ba = (tileData[cb]?.get(ti) ?: 0) ushr 24
+                                val bm = maskData[cb]
+                                if (bm != null && bm[ti] != 0) ba = (ba * Layer.maskVisibility(bm[ti])).toInt()
                                 if (ba == 0) continue
                                 if (ba < 255) src = Pixels.scale(src, ba / 255f)
                             }
@@ -109,7 +119,7 @@ object Compositor {
                 var acc = paper
                 var base = 0
                 for (layer in visible) {
-                    var src = layer.surface.getPixel(px, py)
+                    var src = layer.maskedPixel(px, py)
                     if (!layer.clipping) base = src ushr 24
                     if (src == 0) continue
                     if (layer.clipping) {
@@ -136,9 +146,25 @@ object Compositor {
             val fx = doc.width.toFloat() / tw
             val fy = doc.height.toFloat() / th
             for (y in 0 until th) for (x in 0 until tw) {
-                val c = layer.surface.getPixel(((x + 0.5f) * fx).toInt(), ((y + 0.5f) * fy).toInt())
+                val c = layer.maskedPixel(((x + 0.5f) * fx).toInt(), ((y + 0.5f) * fy).toInt())
                 out[y * tw + x] = Pixels.unpremultiply(c)
             }
+        }
+        return Triple(out, tw, th)
+    }
+
+    /** A layer's mask as a black-and-white thumbnail (white shows, black hides), or null if none. */
+    fun maskThumbnail(doc: Document, layerId: String, maxSize: Int): Triple<IntArray, Int, Int>? {
+        val mask = doc.layer(layerId)?.mask ?: return null
+        val scale = minOf(maxSize.toFloat() / doc.width, maxSize.toFloat() / doc.height, 1f)
+        val tw = maxOf(1, (doc.width * scale).toInt())
+        val th = maxOf(1, (doc.height * scale).toInt())
+        val out = IntArray(tw * th)
+        val fx = doc.width.toFloat() / tw
+        val fy = doc.height.toFloat() / th
+        for (y in 0 until th) for (x in 0 until tw) {
+            val v = (Layer.maskVisibility(mask.getPixel(((x + 0.5f) * fx).toInt(), ((y + 0.5f) * fy).toInt())) * 255f).toInt()
+            out[y * tw + x] = Pixels.pack(255, v, v, v)
         }
         return Triple(out, tw, th)
     }

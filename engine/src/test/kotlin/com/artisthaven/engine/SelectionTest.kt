@@ -1,6 +1,7 @@
 package com.artisthaven.engine
 
 import com.artisthaven.engine.brush.BrushLibrary
+import com.artisthaven.engine.document.Compositor
 import com.artisthaven.engine.document.Document
 import com.artisthaven.engine.document.Selection
 import com.artisthaven.engine.raster.Pixels
@@ -126,5 +127,50 @@ class BrushCodecTest {
         } finally {
             com.artisthaven.engine.brush.BrushLibrary.custom = emptyList()
         }
+    }
+}
+
+class LayerMaskTest {
+    private fun paint(editor: Editor, y: Float, color: Int, size: Float = 30f, x0: Float = 10f, x1: Float = 290f) {
+        val pts = TestSupport.line(x0, y, x1, y)
+        editor.beginStroke(StrokeParams(BrushLibrary.byId("technical_pen"), color = color, size = size), pts.first())
+        pts.drop(1).forEach { editor.strokeTo(it) }
+        editor.endStroke()
+    }
+
+    @Test
+    fun blackHidesWhiteRevealsAndItSavesAndUndoes() {
+        val doc = Document.blank(300, 200, paperColor = 0xFFFFFFFF.toInt())
+        val editor = Editor(doc)
+        val blue = 0xFF1A237E.toInt()
+        paint(editor, 100f, blue)
+        val id = doc.activeLayerId
+        editor.addMask(id)
+        assertTrue(doc.editingMask)
+        // Painting black on the mask hides the left half of the stroke; layer pixels are untouched.
+        paint(editor, 100f, 0xFF000000.toInt(), size = 60f, x0 = 10f, x1 = 140f)
+        assertEquals(255, Pixels.alpha(doc.activeLayer!!.surface.getPixel(60, 100)))
+        assertEquals(0xFFFFFFFF.toInt(), Compositor.sample(doc, 60, 100))
+        assertTrue(Compositor.sample(doc, 220, 100) != 0xFFFFFFFF.toInt())
+        // White paints it back.
+        paint(editor, 100f, 0xFFFFFFFF.toInt(), size = 60f, x0 = 40f, x1 = 80f)
+        assertTrue(Compositor.sample(doc, 60, 100) != 0xFFFFFFFF.toInt())
+        editor.undo()
+        assertEquals(0xFFFFFFFF.toInt(), Compositor.sample(doc, 60, 100))
+
+        // Survives save and load.
+        val dir = java.nio.file.Files.createTempDirectory("mask").toFile()
+        com.artisthaven.engine.io.ProjectCodec.save(doc, dir, "m", 0, 0)
+        val (loaded, _) = com.artisthaven.engine.io.ProjectCodec.load(dir)
+        assertNotNull(loaded.layer(id)!!.mask)
+        assertEquals(0xFFFFFFFF.toInt(), Compositor.sample(loaded, 60, 100))
+
+        // Apply bakes it in; undo brings the mask back.
+        editor.applyMask(id)
+        assertNull(doc.activeLayer!!.mask)
+        assertEquals(0, Pixels.alpha(doc.activeLayer!!.surface.getPixel(60, 100)))
+        editor.undo()
+        assertNotNull(doc.activeLayer!!.mask)
+        assertEquals(255, Pixels.alpha(doc.activeLayer!!.surface.getPixel(60, 100)))
     }
 }

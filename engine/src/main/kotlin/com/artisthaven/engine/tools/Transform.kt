@@ -111,8 +111,13 @@ enum class Resample(val displayName: String) {
  * "before" state for undo. With a selection, the selected part is lifted off into its own tiles
  * to sample from, and what stays behind is the base the moved part is drawn over.
  */
-class TransformSession(private val layer: Layer, val selection: Selection? = null) {
-    private val surface = layer.surface
+class TransformSession(
+    private val layer: Layer,
+    val selection: Selection? = null,
+    /** Move the layer's mask instead of its pixels. */
+    private val onMask: Boolean = false,
+) {
+    private val surface = if (onMask) layer.mask!! else layer.surface
     private val original: Array<IntArray?> = Array(surface.tileCount) { surface.tile(it) }
     private val src: Array<IntArray?>
     private val base: Array<IntArray?>
@@ -306,7 +311,7 @@ class TransformSession(private val layer: Layer, val selection: Selection? = nul
         val dirty = render(m, quality)
         val before = HashMap<Int, IntArray?>()
         for (i in touched) before[i] = original[i]
-        return dirty to PixelCommand.capture("Transform", layer, before)
+        return dirty to PixelCommand.capture("Transform", layer, before, onMask)
     }
 
     /** Puts the original pixels back. */

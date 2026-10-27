@@ -13,6 +13,10 @@ import com.artisthaven.engine.document.MoveLayerCommand
 import com.artisthaven.engine.document.PaperCommand
 import com.artisthaven.engine.document.PixelCommand
 import com.artisthaven.engine.document.Selection
+import com.artisthaven.engine.document.Command
+import com.artisthaven.engine.document.Layer
+import com.artisthaven.engine.document.MaskCommand
+import com.artisthaven.engine.raster.TiledSurface
 import com.artisthaven.engine.document.SelectionCommand
 import com.artisthaven.engine.raster.Pixels
 import com.artisthaven.engine.stroke.InputPoint
@@ -95,8 +99,8 @@ class Editor(val doc: Document, val history: History = History()) {
         cancelStroke()
         settle()
         val layer = doc.activeLayer ?: return null
-        if (!layer.visible || layer.surface.isBlank()) return null
-        val t = TransformSession(layer, doc.selection)
+        if (!layer.visible || doc.paintSurface(layer).isBlank()) return null
+        val t = TransformSession(layer, doc.selection, doc.paintsMask(layer))
         if (t.isEmpty) {
             t.cancel()
             return null
@@ -193,20 +197,22 @@ class Editor(val doc: Document, val history: History = History()) {
         settle()
         val sel = doc.selection ?: return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
+        val target = doc.paintSurface(layer)
+        val onMask = doc.paintsMask(layer)
         val before = HashMap<Int, IntArray?>()
         var dirty: IRect? = null
-        for (index in layer.surface.nonEmptyTileIndices()) {
+        for (index in target.nonEmptyTileIndices()) {
             if (sel.tileEmpty(index)) continue
-            before[index] = layer.surface.copyTile(index)
-            val tile = layer.surface.tile(index) ?: continue
-            val tr = layer.surface.tileRect(index)
+            before[index] = target.copyTile(index)
+            val tile = target.tile(index) ?: continue
+            val tr = target.tileRect(index)
             for (y in tr.top until tr.bottom) for (x in tr.left until tr.right) {
                 val k = ((y and 63) shl 6) or (x and 63)
                 if (tile[k] != 0) tile[k] = Pixels.scale(tile[k], 1f - sel.coverage(x, y))
             }
             dirty = IRect.unionOf(dirty, tr)
         }
-        val cmd = PixelCommand.capture("Clear selection", layer, before) ?: return Change.NONE
+        val cmd = PixelCommand.capture("Clear selection", layer, before, onMask) ?: return Change.NONE
         history.push(cmd)
         return changed(Change(dirty, true))
     }
@@ -217,22 +223,24 @@ class Editor(val doc: Document, val history: History = History()) {
         val sel = doc.selection ?: return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         val rect = sel.bounds() ?: return Change.NONE
+        val target = doc.paintSurface(layer)
+        val onMask = doc.paintsMask(layer)
         val before = HashMap<Int, IntArray?>()
-        for (index in layer.surface.tilesIn(rect)) before[index] = layer.surface.copyTile(index)
+        for (index in target.tilesIn(rect)) before[index] = target.copyTile(index)
         val src = Pixels.premultiply(color)
         for (y in rect.top until rect.bottom) for (x in rect.left until rect.right) {
             val a = sel.coverage(x, y)
             if (a <= 0f) continue
-            val d = layer.surface.getPixel(x, y)
-            val out = if (layer.alphaLock) {
+            val d = target.getPixel(x, y)
+            val out = if (layer.alphaLock && !onMask) {
                 if (d == 0) continue
                 Pixels.lerp(d, Pixels.scale(src, Pixels.alpha(d) / 255f), a)
             } else {
                 Pixels.srcOver(d, Pixels.scale(src, a))
             }
-            layer.surface.setPixel(x, y, out)
+            target.setPixel(x, y, out)
         }
-        val cmd = PixelCommand.capture("Fill selection", layer, before) ?: return Change.NONE
+        val cmd = PixelCommand.capture("Fill selection", layer, before, onMask) ?: return Change.NONE
         history.push(cmd)
         return changed(Change(rect, true))
     }
@@ -259,7 +267,7 @@ class Editor(val doc: Document, val history: History = History()) {
             }
         }
         if (!any) return Change.NONE
-        val parts = ArrayList<com.artisthaven.engine.document.Command>()
+        val parts = ArrayList<Command>()
         var dirty: IRect? = layer.surface.contentBounds()
         if (cut) {
             val before = HashMap<Int, IntArray?>()
@@ -281,13 +289,61 @@ class Editor(val doc: Document, val history: History = History()) {
         return changed(Change(dirty, true))
     }
 
+    // ---- Layer masks ----------------------------------------------------------------------------
+
+    /** Gives the active layer an empty mask (everything shows) and starts editing it. */
+    fun addMask(id: String): Change {
+        settle()
+        val layer = doc.layer(id) ?: return Change.NONE
+        if (layer.mask != null) return setEditingMask(true)
+        doc.activeLayerId = id
+        return changed(history.execute(doc, MaskCommand(id, null, TiledSurface(doc.width, doc.height), doc.editingMask, true, "Add mask")))
+    }
+
+    fun deleteMask(id: String): Change {
+        settle()
+        val layer = doc.layer(id) ?: return Change.NONE
+        val mask = layer.mask ?: return Change.NONE
+        return changed(history.execute(doc, MaskCommand(id, mask, null, doc.editingMask, false, "Delete mask")))
+    }
+
+    /** Bakes the mask into the layer's pixels and removes it. */
+    fun applyMask(id: String): Change {
+        settle()
+        val layer = doc.layer(id) ?: return Change.NONE
+        val mask = layer.mask ?: return Change.NONE
+        val before = HashMap<Int, IntArray?>()
+        for (index in mask.nonEmptyTileIndices()) {
+            val tile = layer.surface.tile(index) ?: continue
+            val m = mask.tile(index) ?: continue
+            before[index] = tile.copyOf()
+            for (k in tile.indices) if (tile[k] != 0) tile[k] = Pixels.scale(tile[k], Layer.maskVisibility(m[k]))
+        }
+        val parts = ArrayList<Command>()
+        PixelCommand.capture("Apply mask", layer, before)?.let { parts += it }
+        val remove = MaskCommand(id, mask, null, doc.editingMask, false)
+        remove.apply(doc)
+        parts += remove
+        history.push(CompoundCommand("Apply mask", parts))
+        return changed(Change(doc.bounds, true))
+    }
+
+    /** Switches painting between the active layer's mask and its pixels (not an undo step). */
+    fun setEditingMask(on: Boolean): Change {
+        settle()
+        val want = on && doc.activeLayer?.mask != null
+        if (doc.editingMask == want) return Change.NONE
+        doc.editingMask = want
+        return Change(null, true)
+    }
+
     // ---- Fill and colour ----------------------------------------------------------------------
 
     fun fill(x: Int, y: Int, color: Int, tolerance: Float, allLayers: Boolean): Change {
         settle()
         val layer = doc.activeLayer ?: return Change.NONE
         val (rect, before) = FloodFill.fill(doc, layer, x, y, color, tolerance, allLayers) ?: return Change.NONE
-        val cmd = PixelCommand.capture("Fill", layer, before) ?: return Change.NONE
+        val cmd = PixelCommand.capture("Fill", layer, before, doc.paintsMask(layer)) ?: return Change.NONE
         history.push(cmd)
         return changed(Change(rect, false))
     }
@@ -346,6 +402,7 @@ class Editor(val doc: Document, val history: History = History()) {
     fun selectLayer(id: String): Change {
         settle()
         if (doc.layer(id) == null) return Change.NONE
+        if (doc.activeLayerId != id) doc.editingMask = false
         doc.activeLayerId = id
         return Change(null, true)
     }
@@ -382,12 +439,13 @@ class Editor(val doc: Document, val history: History = History()) {
     fun clearLayer(id: String): Change {
         settle()
         val layer = doc.layer(id) ?: return Change.NONE
+        val target = doc.paintSurface(layer)
         val before = HashMap<Int, IntArray?>()
-        for (index in layer.surface.nonEmptyTileIndices()) {
-            before[index] = layer.surface.copyTile(index)
-            layer.surface.setTile(index, null)
+        for (index in target.nonEmptyTileIndices()) {
+            before[index] = target.copyTile(index)
+            target.setTile(index, null)
         }
-        val cmd = PixelCommand.capture("Clear layer", layer, before) ?: return Change.NONE
+        val cmd = PixelCommand.capture("Clear layer", layer, before, doc.paintsMask(layer)) ?: return Change.NONE
         history.push(cmd)
         return changed(Change(doc.bounds, true))
     }
@@ -404,7 +462,9 @@ class Editor(val doc: Document, val history: History = History()) {
         if (upper.visible) {
             for (ti in indices) {
                 before[ti] = lower.surface.copyTile(ti)
-                val src = upper.surface.tile(ti) ?: continue
+                val raw = upper.surface.tile(ti) ?: continue
+                val maskTile = upper.mask?.tile(ti)
+                val src = if (maskTile == null) raw else IntArray(raw.size) { k -> if (raw[k] == 0) 0 else Pixels.scale(raw[k], Layer.maskVisibility(maskTile[k])) }
                 val dst = lower.surface.tileOrCreate(ti)
                 val base = if (upper.clipping) before[ti] else null
                 for (i in src.indices) {
