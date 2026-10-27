@@ -66,11 +66,16 @@ enum class GrainTexture(val displayName: String) {
     FINE("Fine grain"),
     CANVAS("Canvas weave"),
     CHALK("Chalk"),
+    DRAWING("Drawing paper"),
+    LAID("Charcoal paper"),
+    COLD_PRESS("Rough watercolour"),
 }
 
 object Textures {
     private const val TIP_SIZE = 128
     private const val GRAIN_SIZE = 256
+    /** Paper tooth repeats less visibly at this size. */
+    private const val TOOTH_SIZE = 512
 
     private val tipCache = HashMap<Pair<TipShape, Int>, Mask>()
     private val grainCache = HashMap<GrainTexture, Mask>()
@@ -109,12 +114,19 @@ object Textures {
                     }
                 }
                 if (shape == TipShape.PENCIL) {
-                    // Graphite tooth: speckle the inside of the tip.
-                    for (i in d.indices) d[i] *= 0.55f + 0.45f * rnd.nextFloat()
+                    // A sharpened lead: firm all the way across with a thin soft rim. The grain
+                    // comes from the paper tooth, not from the tip.
+                    for (y in 0 until n) for (x in 0 until n) {
+                        val r = sqrt(((x - c) * (x - c) + (y - c) * (y - c))) / c
+                        d[y * n + x] = falloff(r, maxOf(hardness, 0.75f))
+                    }
                 }
             }
             TipShape.CHARCOAL -> {
-                val lobes = FloatArray(16) { 0.75f + 0.25f * rnd.nextFloat() }
+                // The worn end of a stick: a ragged blunt shape whose contact varies across its
+                // width, so dragging it leaves streaks along the stroke.
+                val lobes = FloatArray(12) { 0.82f + 0.18f * rnd.nextFloat() }
+                val ridges = FloatArray(24) { 0.4f + 0.6f * rnd.nextFloat() }
                 for (y in 0 until n) for (x in 0 until n) {
                     val dx = x - c
                     val dy = y - c
@@ -123,19 +135,24 @@ object Textures {
                     val i1 = (i0 + 1) % lobes.size
                     val t = a - floor(a)
                     val edge = lobes[i0] * (1 - t) + lobes[i1] * t
-                    val r = sqrt(dx * dx + dy * dy) / c / edge
-                    d[y * n + x] = falloff(r, 0.5f) * (0.35f + 0.65f * rnd.nextFloat())
+                    // Squarer than a disc, like the flat end of a stick.
+                    val sq = maxOf(abs(dx), abs(dy) * 1.15f) * 0.45f + sqrt(dx * dx + dy * dy) * 0.55f
+                    val r = sq / c / edge
+                    val rv = y / (n - 1f) * (ridges.size - 1)
+                    val r0 = rv.toInt().coerceAtMost(ridges.size - 2)
+                    val ridge = ridges[r0] + (ridges[r0 + 1] - ridges[r0]) * (rv - r0)
+                    d[y * n + x] = falloff(r, 0.55f) * ridge
                 }
             }
             TipShape.BRISTLE -> {
-                repeat(42) {
-                    val ang = rnd.nextFloat() * 2f * PI.toFloat()
-                    val rad = sqrt(rnd.nextFloat()) * 0.8f
-                    val bx = c + cos(ang) * rad * c
-                    val by = c + sin(ang) * rad * c
-                    val br = c * (0.08f + 0.1f * rnd.nextFloat())
-                    val strength = 0.5f + 0.5f * rnd.nextFloat()
-                    stampDisc(d, n, bx, by, br, strength)
+                // Footprint of a flat brush seen from above: wide across the stroke, short along
+                // it. The strokes themselves are drawn bristle by bristle (see BristleBrush).
+                for (y in 0 until n) for (x in 0 until n) {
+                    val u = (x - c) / c
+                    val v = (y - c) / c
+                    val along = falloff(abs(u) / 0.45f, 0.4f)
+                    val across = falloff(abs(v), 0.75f)
+                    d[y * n + x] = along * across * (0.6f + 0.4f * rnd.nextFloat())
                 }
             }
             TipShape.SPLATTER -> {
@@ -176,7 +193,10 @@ object Textures {
     }
 
     private fun buildGrain(texture: GrainTexture): Mask {
-        val n = GRAIN_SIZE
+        val n = when (texture) {
+            GrainTexture.DRAWING, GrainTexture.LAID, GrainTexture.COLD_PRESS -> TOOTH_SIZE
+            else -> GRAIN_SIZE
+        }
         val d = FloatArray(n * n)
         when (texture) {
             GrainTexture.PAPER -> fractal(d, n, seed = 11, octaves = 5, base = 8, persistence = 0.55f)
@@ -193,8 +213,37 @@ object Textures {
                     val wx = 0.5f + 0.5f * sin(x / period * PI.toFloat())
                     val wy = 0.5f + 0.5f * sin(y / period * PI.toFloat())
                     val weave = if (((x / period).toInt() + (y / period).toInt()) % 2 == 0) wx else wy
-                    d[y * n + x] = (0.35f + 0.5f * weave + 0.25f * (noise[y * n + x] - 0.5f)).coerceIn(0f, 1f)
+                    d[y * n + x] = (0.35f + 0.45f * weave + 0.45f * (noise[y * n + x] - 0.5f)).coerceIn(0f, 1f)
                 }
+            }
+            GrainTexture.DRAWING -> {
+                // Fine tooth of drawing paper: small bumps a few pixels across, with a hint of
+                // fibres running across the sheet.
+                fractal(d, n, seed = 41, octaves = 2, base = 256, persistence = 0.5f)
+                fibres(d, n, seed = 43, count = 1400, length = 10f, strength = 0.12f)
+                val speck = Random(45)
+                for (i in d.indices) d[i] += (speck.nextFloat() - 0.5f) * 0.25f
+                equalise(d)
+            }
+            GrainTexture.LAID -> {
+                // Ingres-style charcoal paper: tooth plus the fine parallel ridges of the mould.
+                fractal(d, n, seed = 47, octaves = 3, base = 128, persistence = 0.55f)
+                val wobble = FloatArray(n * n)
+                fractal(wobble, n, seed = 53, octaves = 2, base = 8, persistence = 0.5f)
+                for (y in 0 until n) for (x in 0 until n) {
+                    val phase = (x + wobble[y * n + x] * 3f) / 5.33f * 2f * PI.toFloat()
+                    val ridge = 0.5f + 0.5f * sin(phase)
+                    d[y * n + x] = d[y * n + x] * 0.85f + ridge * ridge * 0.15f
+                }
+                equalise(d)
+            }
+            GrainTexture.COLD_PRESS -> {
+                // Rough watercolour paper: broad hills with tooth on top.
+                val hills = FloatArray(n * n)
+                fractal(hills, n, seed = 59, octaves = 3, base = 24, persistence = 0.5f)
+                fractal(d, n, seed = 61, octaves = 2, base = 128, persistence = 0.5f)
+                for (i in d.indices) d[i] = hills[i] * 0.65f + d[i] * 0.35f
+                equalise(d)
             }
             GrainTexture.NONE -> d.fill(1f)
         }
@@ -231,6 +280,42 @@ object Textures {
         for (v in out) { if (v < lo) lo = v; if (v > hi) hi = v }
         val span = (hi - lo).takeIf { abs(it) > 1e-6f } ?: 1f
         for (i in out.indices) out[i] = (out[i] - lo) / span
+    }
+
+    /** Adds short raised fibres lying mostly across the sheet. */
+    private fun fibres(d: FloatArray, n: Int, seed: Int, count: Int, length: Float, strength: Float) {
+        val rnd = Random(seed)
+        repeat(count) {
+            val x0 = rnd.nextFloat() * n
+            val y0 = rnd.nextFloat() * n
+            val a = (rnd.nextFloat() - 0.5f) * 0.9f
+            val len = length * (0.5f + rnd.nextFloat())
+            var t = 0f
+            while (t < len) {
+                val x = ((x0 + cos(a) * t).toInt() % n + n) % n
+                val y = ((y0 + sin(a) * t).toInt() % n + n) % n
+                d[y * n + x] += strength
+                t += 1f
+            }
+        }
+    }
+
+    /**
+     * Remaps values so they are spread evenly over 0..1 (histogram equalisation). Tooth heights
+     * are compared with a pressure threshold, so an even spread makes pressure feel linear.
+     */
+    private fun equalise(d: FloatArray) {
+        var lo = Float.MAX_VALUE
+        var hi = -Float.MAX_VALUE
+        for (v in d) { if (v < lo) lo = v; if (v > hi) hi = v }
+        val span = (hi - lo).takeIf { it > 1e-6f } ?: return
+        val bins = 4096
+        val count = IntArray(bins)
+        for (v in d) count[((v - lo) / span * (bins - 1)).toInt()]++
+        val cdf = FloatArray(bins)
+        var acc = 0
+        for (b in 0 until bins) { acc += count[b]; cdf[b] = acc / d.size.toFloat() }
+        for (i in d.indices) d[i] = cdf[((d[i] - lo) / span * (bins - 1)).toInt()]
     }
 
     private fun smooth(t: Float) = t * t * (3f - 2f * t)

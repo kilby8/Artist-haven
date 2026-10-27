@@ -141,10 +141,11 @@ class ToolsAndFilesTest {
         val before = layer.surface.getPixel(80, 100)
         assertTrue("oil stays opaque on bare canvas (alpha ${before ushr 24})", before ushr 24 > 200)
         // Just past the blue band, the brush carries blue into the red.
-        val after = Compositor.sample(doc, 250, 100)
-        val r = (after shr 16) and 0xFF
-        val b = after and 0xFF
-        assertTrue("paint picked up blue (r=$r b=$b)", b > 55 && r > 70)
+        // Averaged over a patch, since each bristle leaves its own streak.
+        val patch = (246..254).flatMap { x -> (96..104).map { y -> Compositor.sample(doc, x, y) } }
+        val r = patch.sumOf { (it shr 16) and 0xFF } / patch.size
+        val b = patch.sumOf { it and 0xFF } / patch.size
+        assertTrue("paint picked up blue (r=$r b=$b; the red alone has b=40)", b > 50 && r > 70)
     }
 
     @Test

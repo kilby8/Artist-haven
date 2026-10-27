@@ -5,6 +5,7 @@ import com.artisthaven.engine.Editor
 import com.artisthaven.engine.brush.BrushLibrary
 import com.artisthaven.engine.brush.BrushPreset
 import com.artisthaven.engine.brush.RenderMode
+import com.artisthaven.engine.document.BlendMode
 import com.artisthaven.engine.document.Compositor
 import com.artisthaven.engine.document.Document
 import com.artisthaven.engine.stroke.InputPoint
@@ -59,7 +60,9 @@ object BrushPreviews {
             stroke(editor, BrushLibrary.byId("hard_airbrush"), 0xFF8E7DBE.toInt(), 22f, line(W * 0.55f, 14f, W * 0.55f, H - 14f))
         }
         val size = brush.defaultSize.coerceIn(5f, 30f)
-        stroke(editor, brush, color, size, curve())
+        // Multiply would vanish on the dark preview background, so show those brushes as normal.
+        val shown = if (brush.blendMode == BlendMode.MULTIPLY) brush.copy(blendMode = BlendMode.NORMAL) else brush
+        stroke(editor, shown, color, size, curve())
         val px = Compositor.flatten(doc)
         return Bitmap.createBitmap(px, W, H, Bitmap.Config.ARGB_8888)
     }

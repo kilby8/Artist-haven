@@ -1,10 +1,13 @@
 package com.artisthaven.engine.stroke
 
+import com.artisthaven.engine.brush.Bristles
 import com.artisthaven.engine.brush.BrushPreset
+import com.artisthaven.engine.brush.GrainTexture
 import com.artisthaven.engine.brush.Mask
 import com.artisthaven.engine.brush.RenderMode
 import com.artisthaven.engine.brush.Textures
 import com.artisthaven.engine.brush.TipAngle
+import com.artisthaven.engine.brush.TipShape
 import com.artisthaven.engine.document.BlendMode
 import com.artisthaven.engine.document.Document
 import com.artisthaven.engine.document.Layer
@@ -45,6 +48,11 @@ class StrokeSession(
     private val grain: Mask? = Textures.grain(brush.grain)
     private val glaze: Boolean =
         params.tool == Tool.ERASER || (params.tool == Tool.BRUSH && brush.renderMode == RenderMode.GLAZE)
+    private val wash: Boolean = params.tool == Tool.BRUSH && brush.renderMode == RenderMode.WASH
+    private val bristly: Boolean = brush.tip == TipShape.BRISTLE
+
+    /** How far into the paper tooth the current dab reaches (pressure and tilt). */
+    private var reach = 1f
     private val blendMode: BlendMode = if (params.tool == Tool.BRUSH) brush.blendMode else BlendMode.NORMAL
 
     /** Paint only lands inside the selection, if there is one. */
@@ -130,6 +138,7 @@ class StrokeSession(
         var sb = 0f
         val grainOffsetX = rnd.nextFloat() * 256f
         val grainOffsetY = rnd.nextFloat() * 256f
+        val bristles: Bristles? = if (bristly) Bristles(seed, brush) else null
     }
 
     private fun resetPaths() {
@@ -195,6 +204,7 @@ class StrokeSession(
             s.smoothed = sm
             dirty = IRect.unionOf(dirty, advance(s, sm, endLength))
         }
+        if (wash) dirty = IRect.unionOf(dirty, shadeWash())
         totalDirty = IRect.unionOf(totalDirty, dirty)
         return dirty
     }
@@ -243,6 +253,7 @@ class StrokeSession(
             if (p0 != null && p1 != null) dirty = IRect.unionOf(dirty, line(s, mid(p0, p1), p1, endLength))
             s.smoothed = null
         }
+        if (wash) dirty = IRect.unionOf(dirty, shadeWash())
         totalDirty = IRect.unionOf(totalDirty, dirty)
         return dirty
     }
@@ -412,11 +423,39 @@ class StrokeSession(
         val grainDepth = (brush.grainDepth * (1.2f - 0.35f * pr)).coerceIn(0f, 1f)
         s.lastDabX = cx
         s.lastDabY = cy
-        return if (glaze) {
-            glazeDab(s, cx, cy, radius, angle, alpha, dabFlow, grainDepth)
-        } else {
-            wetDab(s, cx, cy, radius, angle, dabFlow * opacity, grainDepth, distance)
+        s.bristles?.prepare(distance, params.size)
+        // Light pressure only catches the tops of the paper grain; pressing harder fills the
+        // valleys. Laying the pencil on its side spreads it out and lightens it. A loaded brush
+        // pushes paint well into the weave whatever the pressure.
+        reach = if (bristly) 0.85f + 0.3f * pr else (0.4f + 0.7f * pr) * (1f - 0.45f * tn * brush.tiltOpacity)
+        return when {
+            wash -> washDab(cx, cy, radius, angle, alpha, dabFlow)
+            glaze -> {
+                var dirty = glazeDab(s, cx, cy, radius, angle, alpha, dabFlow, grainDepth)
+                if (brush.dust > 0f && radius > 2f && params.tool == Tool.BRUSH) {
+                    dirty = IRect.unionOf(dirty, dust(s, cx, cy, radius, alpha, grainDepth))
+                }
+                dirty
+            }
+            else -> wetDab(s, cx, cy, radius, angle, dabFlow * opacity, grainDepth, distance)
         }
+    }
+
+    /** Scatters a few loose specks just beyond the edge of the dab, like charcoal dust. */
+    private fun dust(s: PathState, cx: Float, cy: Float, radius: Float, alpha: Float, grainDepth: Float): IRect? {
+        var dirty: IRect? = null
+        val n = (brush.dust * radius * 0.2f * s.rnd.nextFloat() + s.rnd.nextFloat()).toInt()
+        val keep = reach
+        reach = 1.1f
+        repeat(n) {
+            val a = s.rnd.nextFloat() * 2f * PI.toFloat()
+            val d = radius * (0.8f + 0.9f * s.rnd.nextFloat() * s.rnd.nextFloat())
+            val r = 0.55f + 0.8f * s.rnd.nextFloat() * s.rnd.nextFloat()
+            val speck = alpha * (0.25f + 0.5f * s.rnd.nextFloat())
+            dirty = IRect.unionOf(dirty, glazeDab(s, cx + cos(a) * d, cy + sin(a) * d, r, a, speck, 1f, grainDepth, round = true))
+        }
+        reach = keep
+        return dirty
     }
 
     /** Computes the tip and grain mask value for a pixel centre, or -1 outside the tip. */
@@ -436,21 +475,50 @@ class StrokeSession(
         val dy = py - cy
         val u = (dx * cosA + dy * sinA) / radius
         val v = (-dx * sinA + dy * cosA) / radius * invRound
-        if (u * u + v * v > 1.02f) return -1f
-        var m = tip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
+        val b = s.bristles
+        var m: Float
+        if (b != null && !roundDab) {
+            // A flat brush: short along the stroke, one track per bristle across it.
+            if (u < -0.45f || u > 0.45f || v < -1f || v > 1f) return -1f
+            val t = 1f - (if (u < 0f) -u else u) / 0.45f
+            m = t * (2f - t) * b.coverAt(v)
+        } else {
+            if (u * u + v * v > 1.02f) return -1f
+            m = if (roundDab) roundTip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
+            else tip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
+        }
         if (m <= 0f) return 0f
         val g = grain
-        if (g != null && grainDepth > 0f) {
+        if (g != null && (grainDepth > 0f || brush.tooth > 0f)) {
             val scale = brush.grainScale.coerceAtLeast(0.1f)
             val gv = if (brush.grainMoving) {
                 g.sampleWrapped(dx / scale + s.grainOffsetX, dy / scale + s.grainOffsetY)
             } else {
                 g.sampleWrapped(px / scale, py / scale)
             }
-            m *= 1f - grainDepth + grainDepth * gv
+            if (brush.tooth > 0f) {
+                // Dry media sit on the peaks of the paper: paint lands where the tip reaches
+                // deeper than the hollow at this spot.
+                // Softer leads (lower depth) reach further into the hollows at the same pressure.
+                // Even pressed hard a few of the deepest hollows stay white, and light pressure
+                // leaves a paler deposit on the peaks it does reach.
+                // A loaded bristle fills the weave completely; only a drying one skips.
+                val deep = if (b != null && !roundDab) m * reach * 1.4f
+                else min(0.94f, m * reach * (1.6f - 0.8f * brush.grainDepth))
+                val dep = ((deep - (1f - gv)) / TOOTH_SOFTNESS + 0.5f).coerceIn(0f, 1f) * (0.4f + 0.6f * deep)
+                m += (dep - m) * brush.tooth
+                // Thick paint is either there or not: no see-through fringes.
+                if (b != null && !roundDab) m = ((m - 0.12f) * 2f).coerceIn(0f, 1f)
+            } else {
+                m *= 1f - grainDepth + grainDepth * gv
+            }
         }
         return m
     }
+
+    /** True while drawing dust specks, which use a plain round tip. */
+    private var roundDab = false
+    private val roundTip: Mask by lazy { Textures.tip(TipShape.ROUND, 0.3f) }
 
     /**
      * What a wet brush picks up: mostly the paint that was there before this stroke, plus a little
@@ -478,10 +546,12 @@ class StrokeSession(
         target: Float,
         flow: Float,
         grainDepth: Float,
+        round: Boolean = false,
     ): IRect? {
         val rect = IRect.of(cx - radius - 1, cy - radius - 1, cx + radius + 1, cy + radius + 1)
             .intersect(doc.bounds)
         if (rect.isEmpty) return null
+        roundDab = round
         val cosA = cos(angle)
         val sinA = sin(angle)
         val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
@@ -525,6 +595,7 @@ class StrokeSession(
                 }
             }
         }
+        roundDab = false
         return rect
     }
 
@@ -654,6 +725,10 @@ class StrokeSession(
 
         val strength = (amount * (if (smudge) params.opacity else 1f)).coerceIn(0f, 1f)
         val shift = TiledSurface.SHIFT
+        // Bristle streaks: each lane of the brush gets its own shade of the paint, plus light and
+        // shadow on the ridges the bristles plough (light from the top left).
+        val b = if (smudge) null else s.bristles
+        val light = (sinA * 0.6f - cosA * 0.8f) * brush.impasto * 1.2f
         val alphaLock = layer.alphaLock && !onMask
         val useBlend = !smudge && blendMode != BlendMode.NORMAL
         for (index in surface.tilesIn(rect)) {
@@ -671,10 +746,16 @@ class StrokeSession(
                     val i = row or (x and TiledSurface.MASK)
                     val d = dest?.get(i) ?: 0
                     val t = m * strength * (if (smudge) 1f else params.opacity)
+                    var src = paint
+                    if (b != null) {
+                        val v = (-(x + 0.5f - cx) * sinA + (y + 0.5f - cy) * cosA) / radius * invRound
+                        val lane = b.laneOf(v)
+                        src = shadePaint(paint, 1f + b.tint[lane] + b.slope[lane] * light)
+                    }
                     var out = if (useBlend) {
-                        Pixels.lerp(d, blendMode.blend(d, paint), t)
+                        Pixels.lerp(d, blendMode.blend(d, src), t)
                     } else {
-                        Pixels.lerp(d, paint, t)
+                        Pixels.lerp(d, src, t)
                     }
                     if (alphaLock) {
                         val da = Pixels.alpha(d)
@@ -684,6 +765,171 @@ class StrokeSession(
                         }
                     }
                     if (selection != null) out = Pixels.lerp(d, out, selection.coverage(x, y))
+                    if (dest == null) {
+                        if (out == 0) continue
+                        dest = surface.tileOrCreate(index)
+                    }
+                    dest[i] = out
+                }
+            }
+        }
+        return rect
+    }
+
+    /** Lightens or darkens a premultiplied colour by [k], keeping its alpha. */
+    private fun shadePaint(c: Int, k: Float): Int {
+        if (k == 1f) return c
+        val a = Pixels.alpha(c)
+        val f = k.coerceIn(0.6f, 1.4f)
+        return Pixels.pack(
+            a,
+            (Pixels.red(c) * f + 0.5f).toInt().coerceAtMost(a),
+            (Pixels.green(c) * f + 0.5f).toInt().coerceAtMost(a),
+            (Pixels.blue(c) * f + 0.5f).toInt().coerceAtMost(a),
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Watercolour
+    //
+    // A watercolour stroke is a pool of water carrying pigment. Dabs only add water and pigment to
+    // two per-stroke maps; after each batch of input the touched area is re-shaded from those maps,
+    // because how a wash dries depends on its surroundings: pigment migrates to the edge of the
+    // pool and dries there as a dark rim, the rim follows the paper rather than the brush, and
+    // pigment settles into the hollows of the paper (granulation).
+
+    private val washWater = arrayOfNulls<FloatArray>(surface.tilesX * surface.tilesY)
+    private val washPigment = arrayOfNulls<FloatArray>(surface.tilesX * surface.tilesY)
+    private var washPending: IRect? = null
+    private val flowNoise: Mask by lazy { Textures.grain(GrainTexture.PAPER)!! }
+    private val washPaper: Mask? by lazy { grain ?: Textures.grain(GrainTexture.COLD_PRESS) }
+    private val granules: Mask by lazy { Textures.grain(GrainTexture.DRAWING)!! }
+
+    /** How far, in pixels, pigment travels to the edge of the wash. */
+    private val rimWidth: Float = (params.size * 0.1f).coerceIn(2f, 10f)
+
+    private fun washDab(cx: Float, cy: Float, radius: Float, angle: Float, pigment: Float, flow: Float): IRect? {
+        val rect = IRect.of(cx - radius - 1, cy - radius - 1, cx + radius + 1, cy + radius + 1)
+            .intersect(doc.bounds)
+        if (rect.isEmpty) return null
+        val cosA = cos(angle)
+        val sinA = sin(angle)
+        val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
+        val shift = TiledSurface.SHIFT
+        for (index in surface.tilesIn(rect)) {
+            if (selection != null && selection.tileEmpty(index)) continue
+            if (originalTile(index) == null && layer.alphaLock && !onMask) continue
+            val water = washWater[index] ?: FloatArray(TiledSurface.TILE * TiledSurface.TILE).also { washWater[index] = it }
+            val pig = washPigment[index] ?: FloatArray(TiledSurface.TILE * TiledSurface.TILE).also { washPigment[index] = it }
+            val r = rect.intersect(surface.tileRect(index))
+            for (y in r.top until r.bottom) {
+                val row = (y and TiledSurface.MASK) shl shift
+                for (x in r.left until r.right) {
+                    val dx = x + 0.5f - cx
+                    val dy = y + 0.5f - cy
+                    val u = (dx * cosA + dy * sinA) / radius
+                    val v = (-dx * sinA + dy * cosA) / radius * invRound
+                    if (u * u + v * v > 1.02f) continue
+                    val m = tip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
+                    if (m <= 0f) continue
+                    val i = row or (x and TiledSurface.MASK)
+                    water[i] += (1f - water[i]) * min(1f, m * flow)
+                    val p = pigment * min(1f, m * 1.6f)
+                    if (p > pig[i]) pig[i] = p
+                }
+            }
+        }
+        washPending = IRect.unionOf(washPending, rect)
+        return null
+    }
+
+    private fun waterAt(x: Int, y: Int): Float {
+        if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return 0f
+        val t = washWater[(y shr TiledSurface.SHIFT) * surface.tilesX + (x shr TiledSurface.SHIFT)] ?: return 0f
+        return t[((y and TiledSurface.MASK) shl TiledSurface.SHIFT) or (x and TiledSurface.MASK)]
+    }
+
+    /** Where the wash actually wets the paper: its outline wanders with the paper and the flow. */
+    private fun wetAt(x: Int, y: Int): Float {
+        val w = waterAt(x, y)
+        if (w <= 0f) return 0f
+        val wobble = brush.edgeWobble
+        val n = flowNoise.sampleWrapped(x * 0.9f + 97f, y * 0.9f + 31f) - 0.5f
+        val paper = washPaper?.sampleWrapped(x.toFloat(), y.toFloat())?.minus(0.5f) ?: 0f
+        val level = w + (n * 0.5f + paper * 0.18f) * wobble
+        // Paint laid on dry paper dries with a crisp edge; a wetter wash feathers out.
+        val soft = 0.16f + (1f - brush.edgeDarken) * 0.4f
+        val t = ((level - 0.32f) / soft).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    private val rimDirs: FloatArray = FloatArray(16).also { d ->
+        for (k in 0 until 8) {
+            val a = k * PI.toFloat() / 4f + 0.39f
+            d[k * 2] = cos(a)
+            d[k * 2 + 1] = sin(a)
+        }
+    }
+
+    /** Re-shades the wash wherever it changed since the last call. */
+    private fun shadeWash(): IRect? {
+        val pending = washPending ?: return null
+        washPending = null
+        val reachOut = rimWidth.toInt() + 2
+        val rect = IRect(pending.left - reachOut, pending.top - reachOut, pending.right + reachOut, pending.bottom + reachOut)
+            .intersect(doc.bounds)
+        if (rect.isEmpty) return null
+        val strokeOpacity = params.opacity.coerceIn(0f, 1f)
+        val alphaLock = layer.alphaLock && !onMask
+        val shift = TiledSurface.SHIFT
+        val r1 = rimWidth
+        val r2 = rimWidth * 0.5f
+        for (index in surface.tilesIn(rect)) {
+            val water = washWater[index] ?: continue
+            val pig = washPigment[index] ?: continue
+            val orig = originalTile(index)
+            if (alphaLock && orig == null) continue
+            val tr = surface.tileRect(index)
+            val r = rect.intersect(tr)
+            var dest: IntArray? = surface.tile(index)
+            for (y in r.top until r.bottom) {
+                val row = (y and TiledSurface.MASK) shl shift
+                for (x in r.left until r.right) {
+                    val i = row or (x and TiledSurface.MASK)
+                    if (water[i] <= 0f) continue
+                    val wet = wetAt(x, y)
+                    var density = 0f
+                    if (wet > 0f) {
+                        // Edge darkening: compare the wetness here with its surroundings. Inside the
+                        // rim the surroundings are drier, and that is where pigment piles up.
+                        var around = 0f
+                        for (k in 0 until 8) {
+                            val ddx = rimDirs[k * 2]
+                            val ddy = rimDirs[k * 2 + 1]
+                            around += wetAt((x + ddx * r1).toInt(), (y + ddy * r1).toInt())
+                            around += wetAt((x + ddx * r2).toInt(), (y + ddy * r2).toInt())
+                        }
+                        around /= 16f
+                        val rim = ((wet - around) * 2.5f).coerceIn(0f, 1f)
+                        density = pig[i] * wet * (1f + brush.edgeDarken * rim * 2f)
+                        if (brush.granulation > 0f) {
+                            // Pigment grains settle in the fine hollows of the paper.
+                            val h = granules.sampleWrapped(x / 1.3f, y / 1.3f)
+                            density *= 1f + brush.granulation * (0.5f - h) * 1.1f
+                        }
+                        if (brush.pigmentFlow > 0f) {
+                            val f = flowNoise.sampleWrapped(x * 0.18f + 13f, y * 0.18f + 71f)
+                            density *= 1f + brush.pigmentFlow * (f - 0.5f) * 0.9f
+                        }
+                    }
+                    val a = (density * strokeOpacity).coerceIn(0f, 1f)
+                    val o = orig?.get(i) ?: 0
+                    var out = when {
+                        a <= 0f -> o
+                        alphaLock -> lockedPaint(o, a)
+                        else -> blendMode.blend(o, srcPixel(a))
+                    }
+                    if (selection != null) out = Pixels.lerp(o, out, selection.coverage(x, y))
                     if (dest == null) {
                         if (out == 0) continue
                         dest = surface.tileOrCreate(index)
@@ -707,6 +953,9 @@ class StrokeSession(
         val before = totalDirty
         restoreOriginals()
         coverage.clear()
+        washWater.fill(null)
+        washPigment.fill(null)
+        washPending = null
         totalDirty = null
 
         var length: Float? = null
@@ -744,6 +993,9 @@ class StrokeSession(
     }
 
     companion object {
+        /** How gradually paint fades in over a tooth height difference; smaller is grittier. */
+        private const val TOOTH_SOFTNESS = 0.3f
+
         /** Length of a straight polyline, used by tools that synthesise points. */
         fun polylineLength(points: List<InputPoint>): Float {
             var l = 0f

@@ -123,6 +123,12 @@ fun BrushStudio(
             Choice("Tip faces", TipAngle.entries, brush.tipAngle, { angleName(it) }) { onChange(brush.copy(tipAngle = it)) }
             Value("Angle", brush.angleDegrees, 0f..180f, deg) { onChange(brush.copy(angleDegrees = it)) }
             Value("Rotation jitter", brush.rotationJitter, 0f..180f, deg) { onChange(brush.copy(rotationJitter = it)) }
+            if (brush.tip == TipShape.BRISTLE) {
+                Group("Bristles")
+                Value("Runs dry", brush.dryOut, 0f..1f, pct) { onChange(brush.copy(dryOut = it)) }
+                Value("Thick paint", brush.impasto, 0f..1f, pct) { onChange(brush.copy(impasto = it)) }
+                Value("Colour streaks", brush.streakColour, 0f..1f, pct) { onChange(brush.copy(streakColour = it)) }
+            }
 
             Group("Stroke path")
             Value("Spacing", brush.spacing, 0.01f..1f, pct) { onChange(brush.copy(spacing = it)) }
@@ -141,9 +147,11 @@ fun BrushStudio(
             Value("Depth", brush.grainDepth, 0f..1f, pct) { onChange(brush.copy(grainDepth = it)) }
             Value("Scale", brush.grainScale, 0.1f..4f, num) { onChange(brush.copy(grainScale = it)) }
             Toggle("Moves with the stroke", brush.grainMoving) { onChange(brush.copy(grainMoving = it)) }
+            Value("Paper tooth", brush.tooth, 0f..1f, pct) { onChange(brush.copy(tooth = it)) }
+            Value("Dust", brush.dust, 0f..1f, pct) { onChange(brush.copy(dust = it)) }
 
             Group("Rendering")
-            Choice("Paint", RenderMode.entries, brush.renderMode, { if (it == RenderMode.WET) "Wet (mixes)" else "Glaze (even)" }) {
+            Choice("Paint", RenderMode.entries, brush.renderMode, { renderName(it) }) {
                 onChange(brush.copy(renderMode = it))
             }
             Value("Flow", brush.flow, 0.02f..1f, pct) { onChange(brush.copy(flow = it)) }
@@ -152,6 +160,12 @@ fun BrushStudio(
                 Value("Dilution", brush.dilution, 0f..1f, pct) { onChange(brush.copy(dilution = it)) }
                 Value("Charge", brush.charge, 0f..1f, pct) { onChange(brush.copy(charge = it)) }
                 Value("Pull", brush.pull, 0f..1f, pct) { onChange(brush.copy(pull = it)) }
+            }
+            if (brush.renderMode == RenderMode.WASH) {
+                Value("Dark edges", brush.edgeDarken, 0f..1f, pct) { onChange(brush.copy(edgeDarken = it)) }
+                Value("Granulation", brush.granulation, 0f..1f, pct) { onChange(brush.copy(granulation = it)) }
+                Value("Pigment flow", brush.pigmentFlow, 0f..1f, pct) { onChange(brush.copy(pigmentFlow = it)) }
+                Value("Ragged edge", brush.edgeWobble, 0f..1f, pct) { onChange(brush.copy(edgeWobble = it)) }
             }
 
             Group("Pressure and tilt")
@@ -182,6 +196,12 @@ private val pct: (Float) -> String = { "${(it * 100).roundToInt()}%" }
 private val deg: (Float) -> String = { "${it.roundToInt()}°" }
 private val px: (Float) -> String = { "${if (it < 10f) "%.1f".format(it) else it.roundToInt().toString()} px" }
 private val num: (Float) -> String = { "%.2f".format(it) }
+
+private fun renderName(mode: RenderMode) = when (mode) {
+    RenderMode.GLAZE -> "Glaze (even)"
+    RenderMode.WET -> "Wet (mixes)"
+    RenderMode.WASH -> "Watercolour"
+}
 
 private fun angleName(a: TipAngle) = when (a) {
     TipAngle.FIXED -> "Fixed"
