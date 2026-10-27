@@ -166,6 +166,22 @@ class AppFlowTest {
         stroke((0..20).map { i -> Offset(w * (0.2f + 0.2f * i / 20f), h * (0.8f - 0.1f * i / 20f)) })
         shot("08-symmetry")
 
+        // Move and transform the layer: drag it, turn it, flip it, then Done.
+        rule.onNodeWithTag("tool_transform").performClick()
+        settle()
+        rule.onNodeWithTag("transform_bar").assertExists()
+        shot("08b-transform-start")
+        stroke((0..10).map { i -> Offset(w * 0.3f + w * 0.15f * i / 10f, h * 0.3f + h * 0.05f * i / 10f) })
+        rule.onNodeWithTag("transform_rotate").performClick()
+        settle()
+        rule.onNodeWithTag("transform_flip_h").performClick()
+        settle()
+        shot("08c-transform-moved")
+        rule.onNodeWithTag("transform_done").performClick()
+        settle()
+        assertTrue(rule.onAllNodes(hasTestTag("transform_bar")).fetchSemanticsNodes().isEmpty())
+        shot("08d-transform-done")
+
         // Back to the gallery: the artwork must be saved with both layers.
         rule.onNodeWithTag("tool_gallery").performClick()
         rule.waitUntil(15_000) {

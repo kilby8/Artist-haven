@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -73,6 +76,8 @@ import com.artisthaven.app.canvas.ToolMode
 import com.artisthaven.app.canvas.TouchAction
 import com.artisthaven.app.ui.theme.Haven
 import com.artisthaven.engine.stroke.InputPoint
+import com.artisthaven.engine.tools.Affine
+import com.artisthaven.engine.tools.Resample
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -93,7 +98,11 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
     }
 
     BackHandler {
-        if (state.panel != null) vm.closePanel() else vm.close(onExit)
+        when {
+            state.panel != null -> vm.closePanel()
+            state.transform != null -> vm.cancelTransform()
+            else -> vm.close(onExit)
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Haven.background)) {
@@ -126,12 +135,16 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                         override fun brushDiameter(): Float = vm.state.value.size
                         override fun fingerPaintingAllowed(): Boolean = vm.state.value.fingerPainting
                         override fun onStylusDetected() = vm.onStylusDetected()
+                        override fun transformTo(m: Affine) = vm.updateTransform(m)
                     }).also {
                         it.leftInset = 64f * ctx.resources.displayMetrics.density
                         canvasView = it
                     }
                 },
-                update = { view -> if (view.host !== host) view.host = host },
+                update = { view ->
+                    if (view.host !== host) view.host = host
+                    view.transform = state.transform
+                },
             )
         }
 
@@ -140,6 +153,7 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                 state = state,
                 onGallery = { vm.close(onExit) },
                 onActions = { vm.togglePanel(Panel.ACTIONS) },
+                onTransform = vm::toggleTransform,
                 onTool = vm::selectTool,
                 onLayers = { vm.togglePanel(Panel.LAYERS) },
                 onColors = { vm.togglePanel(Panel.COLORS) },
@@ -198,6 +212,20 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
             }
         }
 
+        state.transform?.let { t ->
+            TransformBar(
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
+                quality = t.quality,
+                onFlipH = { vm.flipTransform(horizontal = true) },
+                onFlipV = { vm.flipTransform(horizontal = false) },
+                onRotate = vm::rotateTransform90,
+                onReset = vm::resetTransform,
+                onQuality = vm::setTransformQuality,
+                onCancel = vm::cancelTransform,
+                onDone = vm::commitTransform,
+            )
+        }
+
         if (state.loading || state.busy) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
@@ -217,6 +245,7 @@ private fun TopBar(
     state: com.artisthaven.app.canvas.CanvasUiState,
     onGallery: () -> Unit,
     onActions: () -> Unit,
+    onTransform: () -> Unit,
     onTool: (ToolMode) -> Unit,
     onLayers: () -> Unit,
     onColors: () -> Unit,
@@ -232,15 +261,17 @@ private fun TopBar(
     ) {
         BarButton(Icons.Filled.GridView, "Gallery", onClick = onGallery)
         BarButton(Icons.Filled.Build, "Actions", selected = state.panel == Panel.ACTIONS, onClick = onActions)
+        BarButton(Icons.Filled.OpenWith, "Transform", selected = state.transform != null, onClick = onTransform)
         Spacer(Modifier.weight(1f))
-        BarButton(Icons.Filled.Brush, "Paint", selected = state.tool == ToolMode.BRUSH) { onTool(ToolMode.BRUSH) }
-        BarButton(Icons.Filled.TouchApp, "Smudge", selected = state.tool == ToolMode.SMUDGE) { onTool(ToolMode.SMUDGE) }
-        BarButton(Icons.Filled.AutoFixNormal, "Erase", selected = state.tool == ToolMode.ERASER) { onTool(ToolMode.ERASER) }
-        BarButton(Icons.Filled.FormatColorFill, "Fill", selected = state.tool == ToolMode.FILL) { onTool(ToolMode.FILL) }
+        val painting = state.transform == null
+        BarButton(Icons.Filled.Brush, "Paint", selected = painting && state.tool == ToolMode.BRUSH) { onTool(ToolMode.BRUSH) }
+        BarButton(Icons.Filled.TouchApp, "Smudge", selected = painting && state.tool == ToolMode.SMUDGE) { onTool(ToolMode.SMUDGE) }
+        BarButton(Icons.Filled.AutoFixNormal, "Erase", selected = painting && state.tool == ToolMode.ERASER) { onTool(ToolMode.ERASER) }
+        BarButton(Icons.Filled.FormatColorFill, "Fill", selected = painting && state.tool == ToolMode.FILL) { onTool(ToolMode.FILL) }
         BarButton(Icons.Filled.Layers, "Layers", selected = state.panel == Panel.LAYERS, onClick = onLayers)
         Box(
             Modifier
-                .padding(horizontal = 8.dp)
+                .padding(horizontal = 4.dp)
                 .size(32.dp)
                 .clip(CircleShape)
                 .background(Color(state.color))
@@ -252,6 +283,54 @@ private fun TopBar(
     }
 }
 
+/** Options shown while moving a layer: flips, quarter turns, resampling, and Cancel / Done. */
+@Composable
+private fun TransformBar(
+    modifier: Modifier,
+    quality: Resample,
+    onFlipH: () -> Unit,
+    onFlipV: () -> Unit,
+    onRotate: () -> Unit,
+    onReset: () -> Unit,
+    onQuality: (Resample) -> Unit,
+    onCancel: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Row(
+        modifier
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Haven.bar)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag("transform_bar"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SmallAction("Flip ↔", "transform_flip_h", onFlipH)
+        SmallAction("Flip ↕", "transform_flip_v", onFlipV)
+        SmallAction("Turn 90°", "transform_rotate", onRotate)
+        SmallAction("Reset", "transform_reset", onReset)
+        val next = Resample.entries[(quality.ordinal + 1) % Resample.entries.size]
+        SmallAction(quality.displayName, "transform_quality") { onQuality(next) }
+        SmallAction("Cancel", "transform_cancel", onCancel)
+        SmallAction("Done", "transform_done", onDone, color = Haven.accent)
+    }
+}
+
+@Composable
+private fun SmallAction(label: String, tag: String, onClick: () -> Unit, color: Color = Haven.text) {
+    Text(
+        label,
+        color = color,
+        fontSize = 13.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 12.dp)
+            .testTag(tag),
+    )
+}
+
 @Composable
 private fun BarButton(
     icon: ImageVector,
@@ -260,7 +339,7 @@ private fun BarButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp).testTag("tool_${label.lowercase()}")) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp).testTag("tool_${label.lowercase()}")) {
         Icon(
             icon,
             contentDescription = label,

@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import com.artisthaven.engine.stroke.InputPoint
+import com.artisthaven.engine.tools.Affine
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -21,7 +22,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** What a touch on the canvas does, decided by the current tool. */
-enum class TouchAction { PAINT, FILL, EYEDROPPER }
+enum class TouchAction { PAINT, FILL, EYEDROPPER, TRANSFORM }
 
 /**
  * The drawing surface. It shows the engine's composite through a zoom/rotate/pan matrix and turns
@@ -53,7 +54,17 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         fun brushDiameter(): Float
         fun fingerPaintingAllowed(): Boolean
         fun onStylusDetected()
+        /** Moves the layer being transformed to [m] (document space). */
+        fun transformTo(m: Affine)
     }
+
+    /** The move/transform in progress, drawn as a box with handles; null when not transforming. */
+    var transform: TransformUi? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
 
     var host: EngineHost? = null
         set(value) {
@@ -222,6 +233,8 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
         canvas.restore()
 
+        transform?.let { drawTransformBox(canvas, it) }
+
         if (!hoverX.isNaN()) {
             val r = max(2f, callbacks.brushDiameter() * currentScale() / 2f)
             canvas.drawCircle(hoverX, hoverY, r, outlineShadow)
@@ -293,6 +306,11 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (host == null) return false
         hoverX = Float.NaN
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) transformGesture = transform != null
+        if (transformGesture) {
+            onTransformTouch(e)
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> onFirstDown(e)
             MotionEvent.ACTION_POINTER_DOWN -> onExtraDown(e)
@@ -328,7 +346,7 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
             return
         }
         when (callbacks.touchAction()) {
-            TouchAction.FILL -> {
+            TouchAction.FILL, TouchAction.TRANSFORM -> {
                 mode = Mode.WAITING
             }
             TouchAction.EYEDROPPER -> {
@@ -534,6 +552,190 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
     private fun angle(e: MotionEvent): Float =
         if (e.pointerCount < 2) 0f else atan2(e.getY(1) - e.getY(0), e.getX(1) - e.getX(0))
 
+    // ---- Move and transform -------------------------------------------------------------------------
+
+    private enum class Grab { NONE, MOVE, CORNER, EDGE, ROTATE, PINCH }
+
+    private var transformGesture = false
+    private var grab = Grab.NONE
+    private var grabIndex = 0
+    private var grabStart = Affine.IDENTITY
+    private var grabX = 0f
+    private var grabY = 0f
+
+    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.rgb(77, 163, 255)
+    }
+    private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+
+    /** Corners then edge midpoints of the source box, in its own (pre-transform) space. */
+    private fun localHandles(t: TransformUi): FloatArray {
+        val r = t.source
+        val l = r.left.toFloat()
+        val tp = r.top.toFloat()
+        val rt = r.right.toFloat()
+        val b = r.bottom.toFloat()
+        val mx = (l + rt) / 2f
+        val my = (tp + b) / 2f
+        // 0 TL, 1 TR, 2 BR, 3 BL, then edges 4 top, 5 right, 6 bottom, 7 left.
+        return floatArrayOf(l, tp, rt, tp, rt, b, l, b, mx, tp, rt, my, mx, b, l, my)
+    }
+
+    /** The handles in screen space, plus the rotate handle and the box centre at the end. */
+    private fun screenHandles(t: TransformUi): FloatArray {
+        val local = localHandles(t)
+        val pts = FloatArray(local.size + 4)
+        for (i in 0 until local.size / 2) {
+            pts[i * 2] = t.matrix.mapX(local[i * 2], local[i * 2 + 1])
+            pts[i * 2 + 1] = t.matrix.mapY(local[i * 2], local[i * 2 + 1])
+        }
+        pts[local.size + 2] = t.matrix.mapX(t.centerX, t.centerY)
+        pts[local.size + 3] = t.matrix.mapY(t.centerX, t.centerY)
+        matrix.mapPoints(pts)
+        // Rotate handle: beyond the top edge, pointing away from the centre.
+        val cx = pts[local.size + 2]
+        val cy = pts[local.size + 3]
+        val tx = pts[8]
+        val ty = pts[9]
+        val len = hypot(tx - cx, ty - cy).coerceAtLeast(1f)
+        val out = ROTATE_HANDLE_DP * resources.displayMetrics.density
+        pts[local.size] = tx + (tx - cx) / len * out
+        pts[local.size + 1] = ty + (ty - cy) / len * out
+        return pts
+    }
+
+    private fun drawTransformBox(canvas: Canvas, t: TransformUi) {
+        val d = resources.displayMetrics.density
+        val p = screenHandles(t)
+        boxPaint.strokeWidth = 1.5f * d
+        outlineShadow.strokeWidth = 3.5f * d
+        for (paint in listOf(outlineShadow, boxPaint)) {
+            for (i in 0 until 4) {
+                val j = (i + 1) % 4
+                canvas.drawLine(p[i * 2], p[i * 2 + 1], p[j * 2], p[j * 2 + 1], paint)
+            }
+            canvas.drawLine(p[8], p[9], p[16], p[17], paint)
+        }
+        for (i in 0 until 9) {
+            val r = (if (i < 4) 8f else if (i < 8) 6f else 9f) * d
+            canvas.drawCircle(p[i * 2], p[i * 2 + 1], r + 1.5f * d, outlineShadow)
+            canvas.drawCircle(p[i * 2], p[i * 2 + 1], r, handleFill)
+            canvas.drawCircle(p[i * 2], p[i * 2 + 1], r, boxPaint)
+        }
+        // A small arrow-ish mark on the rotate handle so it reads as "turn".
+        canvas.drawCircle(p[16], p[17], 3.5f * d, boxPaint)
+    }
+
+    private fun onTransformTouch(e: MotionEvent) {
+        val t = transform
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (t == null) return
+                grabStart = t.matrix
+                val (x, y) = toDoc(e.x, e.y)
+                grabX = x
+                grabY = y
+                val p = screenHandles(t)
+                val hit = HANDLE_HIT_DP * resources.displayMetrics.density
+                fun near(i: Int) = hypot(p[i * 2] - e.x, p[i * 2 + 1] - e.y) < hit
+                grab = when {
+                    near(8) -> Grab.ROTATE
+                    (0 until 4).any { near(it) } -> Grab.CORNER.also { grabIndex = (0 until 4).minBy { hypot(p[it * 2] - e.x, p[it * 2 + 1] - e.y) } }
+                    (4 until 8).any { near(it) } -> Grab.EDGE.also { grabIndex = (4 until 8).minBy { hypot(p[it * 2] - e.x, p[it * 2 + 1] - e.y) } }
+                    else -> Grab.MOVE
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (t == null) return
+                grab = Grab.PINCH
+                startTransform(e)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (t == null) return
+                if (grab == Grab.PINCH) {
+                    if (e.pointerCount < 2) return
+                    pinchTransform(e, t)
+                    return
+                }
+                val (x, y) = toDoc(e.x, e.y)
+                callbacks.transformTo(dragTransform(t, x, y))
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (grab == Grab.PINCH) grab = Grab.NONE
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                grab = Grab.NONE
+                transformGesture = false
+            }
+        }
+    }
+
+    private fun dragTransform(t: TransformUi, x: Float, y: Float): Affine {
+        val m0 = grabStart
+        val r = t.source
+        when (grab) {
+            Grab.MOVE -> return Affine.translate(x - grabX, y - grabY) * m0
+            Grab.ROTATE -> {
+                val cx = m0.mapX(t.centerX, t.centerY)
+                val cy = m0.mapY(t.centerX, t.centerY)
+                var delta = Math.toDegrees((atan2(y - cy, x - cx) - atan2(grabY - cy, grabX - cx)).toDouble()).toFloat()
+                // Snap to 45 degree steps when close, so straight is easy to hit.
+                val total = m0.rotationDegrees + delta
+                val nearest = Math.round(total / 45f) * 45f
+                if (abs(nearest - total) < ROTATE_SNAP_DEG) delta += nearest - total
+                return Affine.about(cx, cy, Affine.rotate(delta)) * m0
+            }
+            Grab.CORNER -> {
+                val inv = m0.inverse()
+                val lx = inv.mapX(x, y)
+                val ly = inv.mapY(x, y)
+                val local = localHandles(t)
+                val ax = local[((grabIndex + 2) % 4) * 2]
+                val ay = local[((grabIndex + 2) % 4) * 2 + 1]
+                val cx = local[grabIndex * 2] - ax
+                val cy = local[grabIndex * 2 + 1] - ay
+                val s = (((lx - ax) * cx + (ly - ay) * cy) / (cx * cx + cy * cy)).coerceAtLeast(MIN_TRANSFORM_SCALE)
+                return m0 * Affine.about(ax, ay, Affine.scale(s))
+            }
+            Grab.EDGE -> {
+                val inv = m0.inverse()
+                val lx = inv.mapX(x, y)
+                val ly = inv.mapY(x, y)
+                val w = r.width.toFloat().coerceAtLeast(1f)
+                val h = r.height.toFloat().coerceAtLeast(1f)
+                val stretch = when (grabIndex) {
+                    4 -> Affine.about(0f, r.bottom.toFloat(), Affine.scale(1f, ((r.bottom - ly) / h).coerceAtLeast(MIN_TRANSFORM_SCALE)))
+                    5 -> Affine.about(r.left.toFloat(), 0f, Affine.scale(((lx - r.left) / w).coerceAtLeast(MIN_TRANSFORM_SCALE), 1f))
+                    6 -> Affine.about(0f, r.top.toFloat(), Affine.scale(1f, ((ly - r.top) / h).coerceAtLeast(MIN_TRANSFORM_SCALE)))
+                    else -> Affine.about(r.right.toFloat(), 0f, Affine.scale(((r.right - lx) / w).coerceAtLeast(MIN_TRANSFORM_SCALE), 1f))
+                }
+                return m0 * stretch
+            }
+            else -> return t.matrix
+        }
+    }
+
+    /** Two fingers move, scale and turn the object together, like holding it. */
+    private fun pinchTransform(e: MotionEvent, t: TransformUi) {
+        val fx = focusX(e)
+        val fy = focusY(e)
+        val sp = span(e)
+        val an = angle(e)
+        val (dx0, dy0) = toDoc(lastFocusX, lastFocusY)
+        val (dx1, dy1) = toDoc(fx, fy)
+        val k = if (lastSpan > 0f && sp > 0f) sp / lastSpan else 1f
+        val rot = Math.toDegrees((an - lastAngle).toDouble()).toFloat()
+        val step = Affine.translate(dx1, dy1) * Affine.rotate(rot) * Affine.scale(k) * Affine.translate(-dx0, -dy0)
+        callbacks.transformTo(step * t.matrix)
+        // Track the new matrix locally too, since the state round trip lags a frame.
+        transform = t.copy(matrix = step * t.matrix)
+        lastFocusX = fx
+        lastFocusY = fy
+        lastSpan = sp
+        lastAngle = an
+    }
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         removeCallbacks(holdToPick)
@@ -552,5 +754,9 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
         private const val QUICKSHAPE_HOLD_MS = 550L
         private const val QUICKSHAPE_STILL_PX = 6f
         private const val ROTATION_SNAP_DEG = 6f
+        private const val HANDLE_HIT_DP = 28f
+        private const val ROTATE_HANDLE_DP = 34f
+        private const val ROTATE_SNAP_DEG = 4f
+        private const val MIN_TRANSFORM_SCALE = 0.02f
     }
 }

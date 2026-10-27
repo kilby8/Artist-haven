@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.artisthaven.engine.ToolsAndFilesTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-25T01:07:35.389Z" hostname="vm" time="1.363">
+<testsuite name="com.artisthaven.engine.ToolsAndFilesTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-27T04:07:16.661Z" hostname="vm" time="1.412">
   <properties/>
-  <testcase name="psdHasHeaderAndAllLayers" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.119"/>
-  <testcase name="longStrokeIsFastEnough" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.659"/>
-  <testcase name="quickShapeRecognisesLinesCirclesAndRectangles" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.013"/>
-  <testcase name="packBitsDecodesBack" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.0"/>
-  <testcase name="quickShapeReplacesTheStrokeInPlace" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.013"/>
-  <testcase name="projectRoundTripsExactly" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.108"/>
-  <testcase name="renderBrushSheet" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.425"/>
-  <testcase name="wetBrushesMixWithPaintUnderneathButStayOpaqueOnBareCanvas" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.025"/>
-  <system-out><![CDATA[Long wet stroke (601 points, 80 px): 303.3 ms
+  <testcase name="psdHasHeaderAndAllLayers" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.282"/>
+  <testcase name="longStrokeIsFastEnough" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.632"/>
+  <testcase name="quickShapeRecognisesLinesCirclesAndRectangles" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.006"/>
+  <testcase name="packBitsDecodesBack" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.001"/>
+  <testcase name="quickShapeReplacesTheStrokeInPlace" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.003"/>
+  <testcase name="projectRoundTripsExactly" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.085"/>
+  <testcase name="renderBrushSheet" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.38"/>
+  <testcase name="wetBrushesMixWithPaintUnderneathButStayOpaqueOnBareCanvas" classname="com.artisthaven.engine.ToolsAndFilesTest" time="0.023"/>
+  <system-out><![CDATA[Long wet stroke (601 points, 80 px): 337.2 ms
 ]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

@@ -17,6 +17,9 @@ import com.artisthaven.engine.document.LayerProps
 import com.artisthaven.engine.raster.IRect
 import com.artisthaven.engine.stroke.InputPoint
 import com.artisthaven.engine.stroke.StrokeParams
+import com.artisthaven.engine.tools.Affine
+import com.artisthaven.engine.tools.Resample
+import java.util.concurrent.atomic.AtomicReference
 
 /** A layer as the layers panel shows it. */
 data class LayerInfo(val id: String, val props: LayerProps, val thumbnail: Bitmap?)
@@ -31,6 +34,8 @@ data class HostState(
     val paperVisible: Boolean = true,
     val saving: Boolean = false,
     val lastSavedAt: Long = 0L,
+    /** A move/transform is in progress on the engine side. */
+    val transforming: Boolean = false,
 )
 
 /**
@@ -120,6 +125,39 @@ class EngineHost(
         main.post { result(color) }
     }
 
+    // ---- Move and transform ---------------------------------------------------------------------
+
+    /** Starts transforming the active layer; [done] gets the area of its pixels, or null if empty. */
+    fun beginTransform(done: (IRect?) -> Unit) = run {
+        val layer = doc.activeLayerId
+        val r = editor.beginTransform()
+        if (r != null) markLayer(layer)
+        apply(Change(null, false), publish = true)
+        main.post { done(r) }
+    }
+
+    private val pendingTransform = AtomicReference<Pair<Affine, Resample>?>(null)
+
+    /** Live preview while dragging. Only the latest matrix is drawn if the engine falls behind. */
+    fun previewTransform(m: Affine, quality: Resample) {
+        if (pendingTransform.getAndSet(m to quality) != null) return
+        run {
+            val (latest, q) = pendingTransform.getAndSet(null) ?: return@run
+            apply(editor.previewTransform(latest, q), publish = false)
+        }
+    }
+
+    fun commitTransform(m: Affine, quality: Resample) = run {
+        pendingTransform.set(null)
+        markLayer(doc.activeLayerId)
+        apply(editor.commitTransform(m, quality), publish = true)
+    }
+
+    fun cancelTransform() = run {
+        pendingTransform.set(null)
+        apply(editor.cancelTransform(), publish = true)
+    }
+
     fun undo() = run { markAll(); apply(editor.undo(), publish = true) }
 
     fun redo() = run { markAll(); apply(editor.redo(), publish = true) }
@@ -195,7 +233,10 @@ class EngineHost(
         changedLayers = null
     }
 
-    private fun apply(change: Change, publish: Boolean) {
+    private fun apply(op: Change, publish: Boolean) {
+        val settled = editor.takeSettledChange()
+        if (settled.dirty != null) markAll()
+        val change = op.merge(settled)
         val dirty = change.dirty
         if (dirty != null) {
             val r = if (change.layersChanged && dirty == doc.bounds) dirty else dirty.inset(1)
@@ -249,17 +290,23 @@ class EngineHost(
             paperVisible = doc.paperVisible,
             saving = false,
             lastSavedAt = lastSavedAt,
+            transforming = editor.isTransforming,
         )
         main.post { onState?.invoke(state) }
     }
 
     private fun scheduleSave() {
         engine.removeCallbacksAndMessages(saveToken)
-        engine.postAtTime({ if (!editor.isStroking) saveIfNeeded() else scheduleSave() }, saveToken, SystemClock.uptimeMillis() + AUTOSAVE_DELAY_MS)
+        engine.postAtTime({ if (!editor.isStroking && !editor.isTransforming) saveIfNeeded() else scheduleSave() }, saveToken, SystemClock.uptimeMillis() + AUTOSAVE_DELAY_MS)
     }
 
     private fun saveIfNeeded() {
         if (editor.isStroking) editor.endStroke()
+        // Never save a half-finished transform; finish it first (the app is closing or going away).
+        if (editor.isTransforming) {
+            markAll()
+            apply(editor.commitTransform(), publish = true)
+        }
         if (editor.revision == savedRevision) return
         try {
             val t0 = SystemClock.uptimeMillis()

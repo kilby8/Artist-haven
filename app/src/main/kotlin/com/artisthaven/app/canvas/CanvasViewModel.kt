@@ -22,6 +22,9 @@ import com.artisthaven.engine.stroke.InputPoint
 import com.artisthaven.engine.stroke.StrokeParams
 import com.artisthaven.engine.stroke.Symmetry
 import com.artisthaven.engine.stroke.Tool
+import com.artisthaven.engine.raster.IRect
+import com.artisthaven.engine.tools.Affine
+import com.artisthaven.engine.tools.Resample
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +45,16 @@ enum class ToolMode(val slot: String) {
 }
 
 enum class Panel { BRUSHES, COLORS, LAYERS, ACTIONS }
+
+/** A move/transform in progress: the layer's original pixel area and where it is going. */
+data class TransformUi(
+    val source: IRect,
+    val matrix: Affine = Affine.IDENTITY,
+    val quality: Resample = Resample.SMOOTH,
+) {
+    val centerX: Float get() = (source.left + source.right) / 2f
+    val centerY: Float get() = (source.top + source.bottom) / 2f
+}
 
 data class CanvasUiState(
     val loading: Boolean = true,
@@ -68,6 +81,7 @@ data class CanvasUiState(
     val fillAllLayers: Boolean = true,
     val message: String? = null,
     val busy: Boolean = false,
+    val transform: TransformUi? = null,
 ) {
     /** Brush used by the current (or last painting) tool. */
     fun brushFor(mode: ToolMode): BrushPreset {
@@ -115,7 +129,10 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
             try {
                 val (doc, manifest) = withContext(Dispatchers.IO) { store.load(projectId) }
                 val h = EngineHost(store, projectId, doc, manifest.name, manifest.createdAt, historyBudget(app))
-                h.onState = { hs -> _state.update { it.copy(host = hs) } }
+                h.onState = { hs ->
+                    // The engine finishes a transform by itself when another edit comes in.
+                    _state.update { it.copy(host = hs, transform = if (hs.transforming) it.transform else null) }
+                }
                 host = h
                 _hostReady.value = h
                 _state.update {
@@ -158,6 +175,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
     // ---- Tools ----------------------------------------------------------------------------------
 
     fun selectTool(mode: ToolMode) {
+        commitTransform()
         _state.update { s ->
             val reopenLibrary = s.tool == mode && mode in setOf(ToolMode.BRUSH, ToolMode.SMUDGE, ToolMode.ERASER)
             val next = s.copy(
@@ -244,7 +262,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
 
     // ---- Canvas input -----------------------------------------------------------------------------
 
-    fun touchAction(): TouchAction = when (_state.value.tool) {
+    fun touchAction(): TouchAction = if (_state.value.transform != null) TouchAction.TRANSFORM else when (_state.value.tool) {
         ToolMode.FILL -> TouchAction.FILL
         ToolMode.EYEDROPPER -> TouchAction.EYEDROPPER
         else -> TouchAction.PAINT
@@ -285,6 +303,62 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
         host?.fill(x, y, s.color, s.fillTolerance, s.fillAllLayers)
     }
 
+    // ---- Move and transform -----------------------------------------------------------------------
+
+    /** Starts moving the active layer, or finishes the move if one is already going. */
+    fun toggleTransform() {
+        if (_state.value.transform != null) {
+            commitTransform()
+            return
+        }
+        val h = host ?: return
+        closePanel()
+        h.beginTransform { source ->
+            if (source == null) showMessage("This layer is empty or hidden, so there's nothing to move")
+            else _state.update { it.copy(transform = TransformUi(source)) }
+        }
+    }
+
+    fun updateTransform(m: Affine) {
+        val t = _state.value.transform ?: return
+        _state.update { it.copy(transform = t.copy(matrix = m)) }
+        host?.previewTransform(m, t.quality)
+    }
+
+    /** Flips along the box's own axis, so a rotated object flips the way it looks. */
+    fun flipTransform(horizontal: Boolean) {
+        val t = _state.value.transform ?: return
+        val flip = if (horizontal) Affine.scale(-1f, 1f) else Affine.scale(1f, -1f)
+        updateTransform(t.matrix * Affine.about(t.centerX, t.centerY, flip))
+    }
+
+    fun rotateTransform90() {
+        val t = _state.value.transform ?: return
+        val cx = t.matrix.mapX(t.centerX, t.centerY)
+        val cy = t.matrix.mapY(t.centerX, t.centerY)
+        updateTransform(Affine.about(cx, cy, Affine.rotate(90f)) * t.matrix)
+    }
+
+    fun resetTransform() = updateTransform(Affine.IDENTITY)
+
+    fun setTransformQuality(q: Resample) {
+        val t = _state.value.transform ?: return
+        _state.update { it.copy(transform = t.copy(quality = q)) }
+        host?.previewTransform(t.matrix, q)
+    }
+
+    fun commitTransform() {
+        val t = _state.value.transform ?: return
+        _state.update { it.copy(transform = null) }
+        host?.commitTransform(t.matrix, t.quality)
+    }
+
+    fun cancelTransform() {
+        if (_state.value.transform == null) return
+        _state.update { it.copy(transform = null) }
+        host?.cancelTransform()
+    }
+
     // ---- Document actions -------------------------------------------------------------------------
 
     fun undo() = host?.undo()
@@ -322,6 +396,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
     /** Encodes the artwork and either saves it to the gallery or hands back a share intent. */
     fun export(context: Context, format: ExportFormat, share: Boolean, onShare: (Intent) -> Unit) {
         val h = host ?: return
+        commitTransform()
         _state.update { it.copy(busy = true) }
         val name = _state.value.projectName
         h.withDocument({ doc -> Exporter.encodeToCache(getApplication(), doc, name, format) }) { file ->

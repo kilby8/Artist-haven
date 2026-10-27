@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.artisthaven.engine.TransformTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-27T04:07:18.075Z" hostname="vm" time="0.037">
+  <properties/>
+  <testcase name="affineInverseAndComposition" classname="com.artisthaven.engine.TransformTest" time="0.002"/>
+  <testcase name="emptyLayerCannotTransformAndOtherEditsCommit" classname="com.artisthaven.engine.TransformTest" time="0.003"/>
+  <testcase name="shrinkingKeepsThinLinesVisible" classname="com.artisthaven.engine.TransformTest" time="0.011"/>
+  <testcase name="scaleRotateFlipAndCancel" classname="com.artisthaven.engine.TransformTest" time="0.017"/>
+  <testcase name="moveIsExactAndUndoRestores" classname="com.artisthaven.engine.TransformTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
