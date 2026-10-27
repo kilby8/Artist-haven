@@ -311,7 +311,7 @@ private fun TransformBar(
         SmallAction("Turn 90°", "transform_rotate", onRotate)
         SmallAction("Reset", "transform_reset", onReset)
         val next = Resample.entries[(quality.ordinal + 1) % Resample.entries.size]
-        SmallAction(quality.displayName, "transform_quality") { onQuality(next) }
+        SmallAction(quality.displayName, "transform_quality", onClick = { onQuality(next) })
         SmallAction("Cancel", "transform_cancel", onCancel)
         SmallAction("Done", "transform_done", onDone, color = Haven.accent)
     }

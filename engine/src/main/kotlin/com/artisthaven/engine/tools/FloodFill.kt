@@ -27,6 +27,41 @@ object FloodFill {
         sampleAllLayers: Boolean = true,
         opacity: Float = 1f,
     ): Pair<IRect, Map<Int, IntArray?>>? {
+        val (rect, cover) = region(doc, layer, x, y, tolerance, sampleAllLayers) ?: return null
+        val sel = doc.selection
+        val before = HashMap<Int, IntArray?>()
+        for (index in layer.surface.tilesIn(rect)) before[index] = layer.surface.copyTile(index)
+        val src = Pixels.premultiply(color)
+        for (yy in rect.top until rect.bottom) for (xx in rect.left until rect.right) {
+            var a = cover[(yy - rect.top) * rect.width + (xx - rect.left)] * opacity
+            if (sel != null) a *= sel.coverage(xx, yy)
+            if (a <= 0f) continue
+            val d = layer.surface.getPixel(xx, yy)
+            val out = if (layer.alphaLock) {
+                val da = Pixels.alpha(d)
+                if (da == 0) continue
+                Pixels.lerp(d, Pixels.scale(src, da / 255f).let { Pixels.pack(da, Pixels.red(it), Pixels.green(it), Pixels.blue(it)) }, a)
+            } else {
+                Pixels.srcOver(d, Pixels.scale(src, a))
+            }
+            layer.surface.setPixel(xx, yy, out)
+        }
+        return rect to before
+    }
+
+    /**
+     * The connected area of similar colour around ([x], [y]), as coverage 0..1 over the returned
+     * rectangle (row-major), grown by a pixel to sit under anti-aliased edges. Also used by the
+     * automatic (magic wand) selection.
+     */
+    fun region(
+        doc: Document,
+        layer: Layer,
+        x: Int,
+        y: Int,
+        tolerance: Float,
+        sampleAllLayers: Boolean,
+    ): Pair<IRect, FloatArray>? {
         val w = doc.width
         val h = doc.height
         if (x !in 0 until w || y !in 0 until h) return null
@@ -95,22 +130,6 @@ object FloodFill {
             }
         }
 
-        val before = HashMap<Int, IntArray?>()
-        for (index in layer.surface.tilesIn(rect)) before[index] = layer.surface.copyTile(index)
-        val src = Pixels.premultiply(color)
-        for (yy in rect.top until rect.bottom) for (xx in rect.left until rect.right) {
-            val a = cover[(yy - rect.top) * rect.width + (xx - rect.left)] * opacity
-            if (a <= 0f) continue
-            val d = layer.surface.getPixel(xx, yy)
-            val out = if (layer.alphaLock) {
-                val da = Pixels.alpha(d)
-                if (da == 0) continue
-                Pixels.lerp(d, Pixels.scale(src, da / 255f).let { Pixels.pack(da, Pixels.red(it), Pixels.green(it), Pixels.blue(it)) }, a)
-            } else {
-                Pixels.srcOver(d, Pixels.scale(src, a))
-            }
-            layer.surface.setPixel(xx, yy, out)
-        }
-        return rect to before
+        return rect to cover
     }
 }

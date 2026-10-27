@@ -46,6 +46,9 @@ class StrokeSession(
         params.tool == Tool.ERASER || (params.tool == Tool.BRUSH && brush.renderMode == RenderMode.GLAZE)
     private val blendMode: BlendMode = if (params.tool == Tool.BRUSH) brush.blendMode else BlendMode.NORMAL
 
+    /** Paint only lands inside the selection, if there is one. */
+    private val selection = doc.selection
+
     private val originals = HashMap<Int, IntArray?>()
     private val coverage = HashMap<Int, FloatArray>()
 
@@ -490,6 +493,7 @@ class StrokeSession(
             val orig = originalTile(index)
             if (alphaLock && orig == null) continue
             if (erase && orig == null) continue
+            if (selection != null && selection.tileEmpty(index)) continue
             val cov = coverage.getOrPut(index) { FloatArray(TiledSurface.TILE * TiledSurface.TILE) }
             val tr = surface.tileRect(index)
             val r = rect.intersect(tr)
@@ -506,11 +510,12 @@ class StrokeSession(
                     cov[i] = c1
                     val o = orig?.get(i) ?: 0
                     val a = c1 * strokeOpacity
-                    val out = when {
+                    var out = when {
                         erase -> Pixels.scale(o, 1f - a)
                         alphaLock -> lockedPaint(o, a)
                         else -> blendMode.blend(o, srcPixel(a))
                     }
+                    if (selection != null) out = Pixels.lerp(o, out, selection.coverage(x, y))
                     if (dest == null) {
                         if (out == 0) continue
                         dest = surface.tileOrCreate(index)
@@ -656,6 +661,7 @@ class StrokeSession(
             val r = rect.intersect(tr)
             var dest: IntArray? = surface.tile(index)
             if (alphaLock && dest == null) continue
+            if (selection != null && selection.tileEmpty(index)) continue
             for (y in r.top until r.bottom) {
                 val row = (y and TiledSurface.MASK) shl shift
                 for (x in r.left until r.right) {
@@ -676,6 +682,7 @@ class StrokeSession(
                             Pixels.pack(da, Pixels.red(it), Pixels.green(it), Pixels.blue(it))
                         }
                     }
+                    if (selection != null) out = Pixels.lerp(d, out, selection.coverage(x, y))
                     if (dest == null) {
                         if (out == 0) continue
                         dest = surface.tileOrCreate(index)

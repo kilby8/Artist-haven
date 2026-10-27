@@ -2,6 +2,7 @@ package com.artisthaven.engine.tools
 
 import com.artisthaven.engine.document.Layer
 import com.artisthaven.engine.document.PixelCommand
+import com.artisthaven.engine.document.Selection
 import com.artisthaven.engine.raster.IRect
 import com.artisthaven.engine.raster.Pixels
 import com.artisthaven.engine.raster.TiledSurface
@@ -102,19 +103,23 @@ enum class Resample(val displayName: String) {
 }
 
 /**
- * Moves, scales, rotates or flips a layer's pixels. The layer shows a fast bilinear preview while
- * the user drags; [finish] renders the final quality and returns one undoable command.
+ * Moves, scales, rotates or flips a layer's pixels (or only the selected ones). The layer shows a
+ * fast bilinear preview while the user drags; [finish] renders the final quality and returns one
+ * undoable command.
  *
  * The original tiles are kept untouched (the layer gets fresh tiles), so they double as the
- * source for sampling and as the "before" state for undo.
+ * "before" state for undo. With a selection, the selected part is lifted off into its own tiles
+ * to sample from, and what stays behind is the base the moved part is drawn over.
  */
-class TransformSession(private val layer: Layer) {
+class TransformSession(private val layer: Layer, val selection: Selection? = null) {
     private val surface = layer.surface
-    private val src: Array<IntArray?> = Array(surface.tileCount) { surface.tile(it) }
+    private val original: Array<IntArray?> = Array(surface.tileCount) { surface.tile(it) }
+    private val src: Array<IntArray?>
+    private val base: Array<IntArray?>
     private val touched = HashSet<Int>()
 
-    /** Area of the layer that had pixels when the transform began. */
-    val source: IRect = surface.contentBounds() ?: IRect.EMPTY
+    /** Area of the pixels being moved. */
+    val source: IRect
 
     val isEmpty: Boolean get() = source.isEmpty
 
@@ -123,9 +128,44 @@ class TransformSession(private val layer: Layer) {
     private var lastOut: IRect? = null
 
     init {
-        for (i in src.indices) if (src[i] != null) {
-            touched += i
-            surface.setTile(i, null)
+        if (selection == null) {
+            src = original
+            base = arrayOfNulls(original.size)
+            source = surface.contentBounds() ?: IRect.EMPTY
+            for (i in original.indices) if (original[i] != null) {
+                touched += i
+                surface.setTile(i, null)
+            }
+        } else {
+            src = arrayOfNulls(original.size)
+            base = arrayOfNulls(original.size)
+            var bounds: IRect? = null
+            for (i in original.indices) {
+                val o = original[i] ?: continue
+                if (selection.tileEmpty(i)) continue
+                val tr = surface.tileRect(i)
+                val lifted = IntArray(o.size)
+                val rest = IntArray(o.size)
+                var any = false
+                for (y in tr.top until tr.bottom) for (x in tr.left until tr.right) {
+                    val k = ((y and TiledSurface.MASK) shl TiledSurface.SHIFT) or (x and TiledSurface.MASK)
+                    val cov = selection.coverage(x, y)
+                    if (o[k] == 0 || cov <= 0f) {
+                        rest[k] = o[k]
+                        continue
+                    }
+                    lifted[k] = Pixels.scale(o[k], cov)
+                    rest[k] = Pixels.scale(o[k], 1f - cov)
+                    any = true
+                    bounds = IRect.unionOf(bounds, IRect(x, y, x + 1, y + 1))
+                }
+                if (!any) continue
+                src[i] = lifted
+                base[i] = rest.takeIf { r -> r.any { it != 0 } }
+                touched += i
+                surface.setTile(i, base[i]?.copyOf())
+            }
+            source = bounds ?: IRect.EMPTY
         }
     }
 
@@ -134,7 +174,7 @@ class TransformSession(private val layer: Layer) {
         matrix = m
         val docBounds = surface.bounds
         val out = m.mapBounds(source).intersect(docBounds)
-        for (i in touched) surface.setTile(i, null)
+        for (i in touched) surface.setTile(i, base[i]?.copyOf())
         val dirty = IRect.unionOf(IRect.unionOf(lastOut, if (lastOut == null) source else null), out.takeUnless { it.isEmpty })
         lastOut = out.takeUnless { it.isEmpty }
         if (out.isEmpty || source.isEmpty) return dirty
@@ -190,7 +230,8 @@ class TransformSession(private val layer: Layer) {
                     }
                     if (px == 0) continue
                     val t = tile ?: surface.tileOrCreate(ti).also { tile = it }
-                    t[((y and TiledSurface.MASK) shl TiledSurface.SHIFT) or (x and TiledSurface.MASK)] = px
+                    val k = ((y and TiledSurface.MASK) shl TiledSurface.SHIFT) or (x and TiledSurface.MASK)
+                    t[k] = if (t[k] == 0) px else Pixels.srcOver(t[k], px)
                 }
             }
         }
@@ -264,13 +305,13 @@ class TransformSession(private val layer: Layer) {
     fun finish(m: Affine, quality: Resample): Pair<IRect?, PixelCommand?> {
         val dirty = render(m, quality)
         val before = HashMap<Int, IntArray?>()
-        for (i in touched) before[i] = src[i]
+        for (i in touched) before[i] = original[i]
         return dirty to PixelCommand.capture("Transform", layer, before)
     }
 
     /** Puts the original pixels back. */
     fun cancel(): IRect? {
-        for (i in touched) surface.setTile(i, src[i])
+        for (i in touched) surface.setTile(i, original[i])
         return IRect.unionOf(lastOut, source.takeUnless { it.isEmpty })
     }
 }

@@ -12,6 +12,8 @@ import com.artisthaven.engine.document.LayerPropsCommand
 import com.artisthaven.engine.document.MoveLayerCommand
 import com.artisthaven.engine.document.PaperCommand
 import com.artisthaven.engine.document.PixelCommand
+import com.artisthaven.engine.document.Selection
+import com.artisthaven.engine.document.SelectionCommand
 import com.artisthaven.engine.raster.Pixels
 import com.artisthaven.engine.stroke.InputPoint
 import com.artisthaven.engine.stroke.StrokeParams
@@ -94,7 +96,7 @@ class Editor(val doc: Document, val history: History = History()) {
         settle()
         val layer = doc.activeLayer ?: return null
         if (!layer.visible || layer.surface.isBlank()) return null
-        val t = TransformSession(layer)
+        val t = TransformSession(layer, doc.selection)
         if (t.isEmpty) {
             t.cancel()
             return null
@@ -115,9 +117,19 @@ class Editor(val doc: Document, val history: History = History()) {
     fun commitTransform(m: Affine? = null, quality: Resample = transformQuality): Change {
         val t = transform ?: return Change.NONE
         transform = null
-        val (dirty, cmd) = t.finish(m ?: t.matrix, quality)
-        cmd?.let { history.push(it) }
-        return changed(Change(dirty, cmd != null))
+        val matrix = m ?: t.matrix
+        val (dirty, cmd) = t.finish(matrix, quality)
+        if (cmd == null) return Change(dirty, false)
+        // The selection travels with the pixels it lifted.
+        val sel = t.selection
+        if (sel != null && !matrix.isIdentity) {
+            val moved = SelectionCommand(sel, sel.transformed(matrix).takeUnless { it.isEmpty })
+            moved.apply(doc)
+            history.push(CompoundCommand("Transform", listOf(cmd, moved)))
+        } else {
+            history.push(cmd)
+        }
+        return changed(Change(dirty, true))
     }
 
     fun cancelTransform(): Change {
@@ -135,6 +147,139 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Redraw needed by a transform that another edit finished implicitly; resets after reading. */
     fun takeSettledChange(): Change = settled.also { settled = Change.NONE }
+
+    // ---- Selection ------------------------------------------------------------------------------
+
+    enum class SelectMode { REPLACE, ADD, SUBTRACT }
+
+    private fun select(shape: Selection, mode: SelectMode): Change {
+        settle()
+        val current = doc.selection
+        val next = when {
+            mode == SelectMode.REPLACE || current == null -> if (mode == SelectMode.SUBTRACT) null else shape
+            else -> current.combine(shape, add = mode == SelectMode.ADD)
+        }?.takeUnless { it.isEmpty }
+        if (next == null && current == null) return Change.NONE
+        return changed(history.execute(doc, SelectionCommand(current, next)))
+    }
+
+    /** Lasso, rectangle or ellipse: a closed outline as x0, y0, x1, y1, ... in canvas pixels. */
+    fun selectPolygon(xy: FloatArray, mode: SelectMode = SelectMode.REPLACE): Change =
+        select(Selection.polygon(doc.width, doc.height, xy), mode)
+
+    /** Automatic selection: the connected area of similar colour, like the fill tool would fill. */
+    fun selectSimilar(x: Int, y: Int, tolerance: Float, allLayers: Boolean, mode: SelectMode = SelectMode.REPLACE): Change {
+        val layer = doc.activeLayer ?: return Change.NONE
+        val (rect, cover) = FloodFill.region(doc, layer, x, y, tolerance, allLayers) ?: return Change.NONE
+        return select(Selection.fromCoverage(doc.width, doc.height, rect, cover), mode)
+    }
+
+    fun selectAll(): Change = select(Selection.all(doc.width, doc.height), SelectMode.REPLACE)
+
+    fun deselect(): Change {
+        settle()
+        val current = doc.selection ?: return Change.NONE
+        return changed(history.execute(doc, SelectionCommand(current, null)))
+    }
+
+    fun invertSelection(): Change {
+        settle()
+        val current = doc.selection ?: return Change.NONE
+        return changed(history.execute(doc, SelectionCommand(current, current.inverted().takeUnless { it.isEmpty })))
+    }
+
+    /** Erases the selected pixels on the active layer. */
+    fun clearSelected(): Change {
+        settle()
+        val sel = doc.selection ?: return Change.NONE
+        val layer = doc.activeLayer ?: return Change.NONE
+        val before = HashMap<Int, IntArray?>()
+        var dirty: IRect? = null
+        for (index in layer.surface.nonEmptyTileIndices()) {
+            if (sel.tileEmpty(index)) continue
+            before[index] = layer.surface.copyTile(index)
+            val tile = layer.surface.tile(index) ?: continue
+            val tr = layer.surface.tileRect(index)
+            for (y in tr.top until tr.bottom) for (x in tr.left until tr.right) {
+                val k = ((y and 63) shl 6) or (x and 63)
+                if (tile[k] != 0) tile[k] = Pixels.scale(tile[k], 1f - sel.coverage(x, y))
+            }
+            dirty = IRect.unionOf(dirty, tr)
+        }
+        val cmd = PixelCommand.capture("Clear selection", layer, before) ?: return Change.NONE
+        history.push(cmd)
+        return changed(Change(dirty, true))
+    }
+
+    /** Fills the selection with a straight colour on the active layer. */
+    fun fillSelection(color: Int): Change {
+        settle()
+        val sel = doc.selection ?: return Change.NONE
+        val layer = doc.activeLayer ?: return Change.NONE
+        val rect = sel.bounds() ?: return Change.NONE
+        val before = HashMap<Int, IntArray?>()
+        for (index in layer.surface.tilesIn(rect)) before[index] = layer.surface.copyTile(index)
+        val src = Pixels.premultiply(color)
+        for (y in rect.top until rect.bottom) for (x in rect.left until rect.right) {
+            val a = sel.coverage(x, y)
+            if (a <= 0f) continue
+            val d = layer.surface.getPixel(x, y)
+            val out = if (layer.alphaLock) {
+                if (d == 0) continue
+                Pixels.lerp(d, Pixels.scale(src, Pixels.alpha(d) / 255f), a)
+            } else {
+                Pixels.srcOver(d, Pixels.scale(src, a))
+            }
+            layer.surface.setPixel(x, y, out)
+        }
+        val cmd = PixelCommand.capture("Fill selection", layer, before) ?: return Change.NONE
+        history.push(cmd)
+        return changed(Change(rect, true))
+    }
+
+    /** Copies (or cuts, with [cut]) the selected pixels of the active layer onto a new layer above. */
+    fun selectionToNewLayer(cut: Boolean): Change {
+        settle()
+        val sel = doc.selection ?: return Change.NONE
+        val src = doc.activeLayer ?: return Change.NONE
+        val layer = doc.createLayer(src.name + if (cut) " cut" else " copy")
+        var any = false
+        for (index in src.surface.nonEmptyTileIndices()) {
+            if (sel.tileEmpty(index)) continue
+            val from = src.surface.tile(index) ?: continue
+            val tr = src.surface.tileRect(index)
+            val out = IntArray(from.size)
+            for (y in tr.top until tr.bottom) for (x in tr.left until tr.right) {
+                val k = ((y and 63) shl 6) or (x and 63)
+                if (from[k] != 0) out[k] = Pixels.scale(from[k], sel.coverage(x, y))
+            }
+            if (out.any { it != 0 }) {
+                layer.surface.setTile(index, out)
+                any = true
+            }
+        }
+        if (!any) return Change.NONE
+        val parts = ArrayList<com.artisthaven.engine.document.Command>()
+        var dirty: IRect? = layer.surface.contentBounds()
+        if (cut) {
+            val before = HashMap<Int, IntArray?>()
+            for (index in layer.surface.nonEmptyTileIndices()) {
+                before[index] = src.surface.copyTile(index)
+                val tile = src.surface.tile(index) ?: continue
+                val tr = src.surface.tileRect(index)
+                for (y in tr.top until tr.bottom) for (x in tr.left until tr.right) {
+                    val k = ((y and 63) shl 6) or (x and 63)
+                    if (tile[k] != 0) tile[k] = Pixels.scale(tile[k], 1f - sel.coverage(x, y))
+                }
+            }
+            PixelCommand.capture("Cut", src, before)?.let { parts += it }
+        }
+        val add = AddLayerCommand(doc.activeIndex + 1, layer, doc.activeLayerId)
+        dirty = IRect.unionOf(dirty, add.apply(doc).dirty)
+        parts += add
+        history.push(CompoundCommand(if (cut) "Cut to layer" else "Copy to layer", parts))
+        return changed(Change(dirty, true))
+    }
 
     // ---- Fill and colour ----------------------------------------------------------------------
 

@@ -219,3 +219,18 @@ class History(var maxBytes: Long = 192L * 1024 * 1024, var maxSteps: Int = 200) 
         }
     }
 }
+
+/** A change of selection, so lasso steps can be undone like Procreate's. */
+class SelectionCommand(private val before: Selection?, private val after: Selection?) : Command {
+    override val label = "Selection"
+    override val bytes: Long = (before?.byteSize ?: 0) + (after?.byteSize ?: 0) + 32
+    override fun apply(doc: Document): Change {
+        doc.selection = after
+        return Change(null, true)
+    }
+
+    override fun revert(doc: Document): Change {
+        doc.selection = before
+        return Change(null, true)
+    }
+}

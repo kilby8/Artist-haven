@@ -16,6 +16,9 @@ class Document(
     val layers: MutableList<Layer> = mutableListOf()
     var activeLayerId: String = ""
 
+    /** Limits painting, fills and transforms to part of the canvas; null means everything. */
+    var selection: Selection? = null
+
     private var idCounter = 0
 
     val bounds: IRect get() = IRect(0, 0, width, height)
