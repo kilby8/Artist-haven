@@ -102,6 +102,7 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
 
     BackHandler {
         when {
+            state.studio != null -> vm.closeStudio()
             state.panel != null -> vm.closePanel()
             state.transform != null -> vm.cancelTransform()
             else -> vm.close(onExit)
@@ -200,7 +201,7 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                         shadowElevation = 12.dp,
                     ) {
                         when (panel) {
-                            Panel.BRUSHES -> BrushLibraryPanel(state, onSelect = vm::selectBrush)
+                            Panel.BRUSHES -> BrushLibraryPanel(state, onSelect = vm::selectBrush, onEdit = vm::openStudio)
                             Panel.COLORS -> ColorPanel(
                                 state = state,
                                 onColor = { c, final -> vm.setColor(c, addToRecent = final) },
@@ -239,6 +240,17 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                 onQuality = vm::setTransformQuality,
                 onCancel = vm::cancelTransform,
                 onDone = vm::commitTransform,
+            )
+        }
+
+        state.studio?.let { draft ->
+            BrushStudio(
+                brush = draft,
+                color = state.color,
+                onChange = vm::updateStudio,
+                onSave = vm::saveStudio,
+                onCancel = vm::closeStudio,
+                onDelete = if (isOwnBrush(draft)) vm::deleteStudioBrush else null,
             )
         }
 
@@ -321,14 +333,14 @@ private fun SelectionBar(modifier: Modifier, state: com.artisthaven.app.canvas.C
                 )
             }
             Spacer(Modifier.width(6.dp))
-            listOf(Editor.SelectMode.REPLACE to "New", Editor.SelectMode.ADD to "Add", Editor.SelectMode.SUBTRACT to "Remove").forEach { (m, label) ->
-                SmallAction(
-                    label,
-                    "select_mode_${m.name.lowercase()}",
-                    onClick = { vm.setSelectMode(m) },
-                    color = if (state.selectMode == m) Haven.accent else Haven.textDim,
-                )
+            // One chip cycles New → Add → Remove, so the row fits a phone.
+            val modeLabel = when (state.selectMode) {
+                Editor.SelectMode.REPLACE -> "New"
+                Editor.SelectMode.ADD -> "+ Add"
+                Editor.SelectMode.SUBTRACT -> "− Remove"
             }
+            val nextMode = Editor.SelectMode.entries[(state.selectMode.ordinal + 1) % Editor.SelectMode.entries.size]
+            SmallAction(modeLabel, "select_mode", onClick = { vm.setSelectMode(nextMode) }, color = Haven.accent)
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             val has = state.host.hasSelection

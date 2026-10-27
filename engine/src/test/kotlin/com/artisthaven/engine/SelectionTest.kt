@@ -109,3 +109,22 @@ class SelectionTest {
         assertEquals(0, s.at(200, 150))
     }
 }
+
+class BrushCodecTest {
+    @Test
+    fun customBrushesRoundTripAndResolve() {
+        val base = com.artisthaven.engine.brush.BrushLibrary.byId("oil_paint")
+        val mine = base.copy(id = "custom_1", name = "My oil", category = com.artisthaven.engine.brush.BrushCategory.MINE, pull = 0.9f)
+        val text = com.artisthaven.engine.brush.BrushCodec.encode(listOf(mine))
+        val back = com.artisthaven.engine.brush.BrushCodec.decode(text)
+        assertEquals(listOf(mine), back)
+        assertTrue(com.artisthaven.engine.brush.BrushCodec.decode("not a brush").isEmpty())
+        com.artisthaven.engine.brush.BrushLibrary.custom = back
+        try {
+            assertEquals("My oil", com.artisthaven.engine.brush.BrushLibrary.byId("custom_1").name)
+            assertTrue(com.artisthaven.engine.brush.BrushLibrary.isCustom("custom_1"))
+        } finally {
+            com.artisthaven.engine.brush.BrushLibrary.custom = emptyList()
+        }
+    }
+}

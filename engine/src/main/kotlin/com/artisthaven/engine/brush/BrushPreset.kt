@@ -1,6 +1,9 @@
 package com.artisthaven.engine.brush
 
 import com.artisthaven.engine.document.BlendMode
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** How a brush lays down paint. */
 enum class RenderMode {
@@ -18,6 +21,7 @@ enum class TipAngle { FIXED, FOLLOW_STROKE, STYLUS }
  * A brush, modelled on Procreate's Brush Studio groups (stroke path, stabilisation, taper, shape,
  * grain, rendering, wet mix, dynamics, pressure and tilt), trimmed to settings that visibly matter.
  */
+@Serializable
 data class BrushPreset(
     val id: String,
     val name: String,
@@ -80,6 +84,7 @@ data class BrushPreset(
 )
 
 enum class BrushCategory(val displayName: String) {
+    MINE("My brushes"),
     SKETCHING("Sketching"),
     INKING("Inking"),
     PAINTING("Painting"),
@@ -91,7 +96,12 @@ enum class BrushCategory(val displayName: String) {
 
 /** The built-in brush set. Each brush is tuned to look clearly different from the others. */
 object BrushLibrary {
-    val all: List<BrushPreset> = listOf(
+    /** Brushes the user made in the Brush Studio; the app loads and saves them. */
+    @Volatile var custom: List<BrushPreset> = emptyList()
+
+    val all: List<BrushPreset> get() = custom + builtIn
+
+    val builtIn: List<BrushPreset> = listOf(
         // Sketching
         BrushPreset(
             id = "hb_pencil", name = "HB Pencil", category = BrushCategory.SKETCHING,
@@ -245,7 +255,23 @@ object BrushLibrary {
     val defaultEraser: BrushPreset get() = byId("hard_airbrush")
     val defaultSmudge: BrushPreset get() = byId("soft_airbrush")
 
-    fun byId(id: String?): BrushPreset = all.firstOrNull { it.id == id } ?: all.first { it.id == "studio_pen" }
+    fun byId(id: String?): BrushPreset =
+        custom.firstOrNull { it.id == id } ?: builtIn.firstOrNull { it.id == id } ?: builtIn.first { it.id == "studio_pen" }
+
+    fun isCustom(id: String): Boolean = custom.any { it.id == id }
 
     fun inCategory(category: BrushCategory): List<BrushPreset> = all.filter { it.category == category }
+}
+
+/** Reads and writes custom brushes as JSON, for storage and for sharing a brush as a file. */
+object BrushCodec {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; prettyPrint = true }
+
+    fun encode(brushes: List<BrushPreset>): String = json.encodeToString(brushes)
+
+    /** Returns the brushes in [text], or an empty list if it isn't a brush file. */
+    fun decode(text: String): List<BrushPreset> =
+        runCatching { json.decodeFromString<List<BrushPreset>>(text) }.getOrElse {
+            runCatching { listOf(json.decodeFromString<BrushPreset>(text)) }.getOrDefault(emptyList())
+        }
 }

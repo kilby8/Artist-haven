@@ -44,6 +44,14 @@ object BrushPreviews {
         }
     }
 
+    /** Re-renders one brush's preview, after it was made or changed in the Brush Studio. */
+    fun refresh(brush: BrushPreset) {
+        scope.launch {
+            val bmp = render(brush)
+            _previews.update { it + (brush.id to bmp) }
+        }
+    }
+
     fun render(brush: BrushPreset, color: Int = 0xFFF2F2F2.toInt()): Bitmap {
         val doc = Document.blank(W, H, paperColor = 0xFF2B2B31.toInt())
         val editor = Editor(doc)

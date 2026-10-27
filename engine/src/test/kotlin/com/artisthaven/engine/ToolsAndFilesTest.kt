@@ -166,6 +166,7 @@ class ToolsAndFilesTest {
                 BrushCategory.ARTISTIC -> 0xFF6A1B9A.toInt()
                 BrushCategory.AIRBRUSHING -> 0xFFEF6C00.toInt()
                 BrushCategory.TEXTURES -> 0xFF2E7D32.toInt()
+                BrushCategory.MINE -> 0xFF00838F.toInt()
             }
             if (brush.category == BrushCategory.PAINTING || brush.id == "watercolor_round") {
                 // Wet brushes need something to mix with.

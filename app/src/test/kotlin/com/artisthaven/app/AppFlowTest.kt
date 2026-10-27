@@ -121,6 +121,15 @@ class AppFlowTest {
         rule.onNodeWithTag("brush_watercolor_round").performClick()
         settle()
 
+        // Brush Studio: make an own copy of the watercolour brush and save it.
+        rule.onNodeWithTag("brush_edit").performClick()
+        settle(800)
+        rule.onNodeWithTag("brush_studio").assertExists()
+        shot("03b-brush-studio")
+        rule.onNodeWithTag("studio_save").performClick()
+        settle()
+        assertTrue(rule.onAllNodes(hasTestTag("brush_studio")).fetchSemanticsNodes().isEmpty())
+
         // Colours panel.
         rule.onNodeWithTag("tool_colors").performClick()
         settle()

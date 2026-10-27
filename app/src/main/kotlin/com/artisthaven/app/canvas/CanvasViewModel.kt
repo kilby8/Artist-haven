@@ -13,9 +13,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.artisthaven.app.data.ExportFormat
 import com.artisthaven.app.data.Exporter
+import com.artisthaven.app.data.BrushStore
 import com.artisthaven.app.data.ProjectStore
 import com.artisthaven.app.data.Settings
 import com.artisthaven.engine.Editor
+import com.artisthaven.engine.brush.BrushCategory
 import com.artisthaven.engine.brush.BrushLibrary
 import com.artisthaven.engine.brush.BrushPreset
 import com.artisthaven.engine.document.LayerProps
@@ -90,6 +92,10 @@ data class CanvasUiState(
     val transform: TransformUi? = null,
     val selectShape: SelectShape = SelectShape.FREEHAND,
     val selectMode: Editor.SelectMode = Editor.SelectMode.REPLACE,
+    /** The brush being edited in the Brush Studio, or null when it's closed. */
+    val studio: BrushPreset? = null,
+    /** Bumped when custom brushes change, so the library list refreshes. */
+    val brushesVersion: Int = 0,
 ) {
     /** Brush used by the current (or last painting) tool. */
     fun brushFor(mode: ToolMode): BrushPreset {
@@ -113,6 +119,7 @@ data class CanvasUiState(
 class CanvasViewModel(app: Application, val projectId: String) : AndroidViewModel(app) {
     private val store = ProjectStore(app)
     private val settings = Settings(app)
+    private val brushStore = BrushStore(app)
 
     private val _state = MutableStateFlow(initialState())
     val state: StateFlow<CanvasUiState> = _state.asStateFlow()
@@ -132,6 +139,7 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(backgroundSaver)
+        if (BrushLibrary.custom.isEmpty()) BrushLibrary.custom = runCatching { brushStore.load() }.getOrDefault(emptyList())
         BrushPreviews.ensureRendered()
         viewModelScope.launch {
             try {
@@ -310,6 +318,46 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
     fun fill(x: Int, y: Int) {
         val s = _state.value
         host?.fill(x, y, s.color, s.fillTolerance, s.fillAllLayers)
+    }
+
+    // ---- Brush Studio ---------------------------------------------------------------------------
+
+    /** Opens the Brush Studio: own brushes are edited in place, built-in ones as a new copy. */
+    fun openStudio(brush: BrushPreset) {
+        val draft = if (BrushLibrary.isCustom(brush.id)) brush else brush.copy(
+            id = "custom_" + System.currentTimeMillis(),
+            name = brush.name + " copy",
+            category = BrushCategory.MINE,
+        )
+        _state.update { it.copy(studio = draft, panel = null) }
+    }
+
+    fun updateStudio(brush: BrushPreset) = _state.update { it.copy(studio = brush) }
+    fun closeStudio() = _state.update { it.copy(studio = null) }
+
+    fun saveStudio() {
+        val brush = _state.value.studio ?: return
+        val list = BrushLibrary.custom
+        val next = if (list.any { it.id == brush.id }) list.map { if (it.id == brush.id) brush else it } else list + brush
+        BrushLibrary.custom = next
+        viewModelScope.launch(Dispatchers.IO) { runCatching { brushStore.save(next) } }
+        BrushPreviews.refresh(brush)
+        _state.update { it.copy(studio = null, brushesVersion = it.brushesVersion + 1) }
+        if (_state.value.tool !in setOf(ToolMode.BRUSH, ToolMode.SMUDGE, ToolMode.ERASER)) selectTool(_state.value.lastPaintTool)
+        selectBrush(brush)
+        showMessage("Saved to My brushes")
+    }
+
+    fun deleteStudioBrush() {
+        val brush = _state.value.studio ?: return
+        val next = BrushLibrary.custom.filter { it.id != brush.id }
+        BrushLibrary.custom = next
+        viewModelScope.launch(Dispatchers.IO) { runCatching { brushStore.save(next) } }
+        _state.update { s ->
+            // Any tool still pointing at the deleted brush falls back to its default.
+            val ids = s.brushIds.filterValues { it != brush.id }
+            s.copy(studio = null, brushIds = ids, brushesVersion = s.brushesVersion + 1)
+        }
     }
 
     // ---- Selection --------------------------------------------------------------------------------

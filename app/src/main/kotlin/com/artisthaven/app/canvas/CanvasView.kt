@@ -604,7 +604,8 @@ class CanvasView(context: Context, private val callbacks: Callbacks) : View(cont
                 overlayBitmap = b
             }
         }
-        overlayBitmap?.let { canvas.drawBitmap(it, 0f, 0f, overlayPaint) }
+        // While transforming, the box shows what moves; the old outline would only confuse.
+        if (transform == null) overlayBitmap?.let { canvas.drawBitmap(it, 0f, 0f, overlayPaint) }
     }
 
     private fun lassoShape(endX: Float, endY: Float): List<Float> {

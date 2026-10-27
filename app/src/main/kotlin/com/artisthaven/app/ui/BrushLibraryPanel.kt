@@ -2,7 +2,9 @@ package com.artisthaven.app.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,9 +40,13 @@ import com.artisthaven.engine.brush.BrushCategory
 import com.artisthaven.engine.brush.BrushLibrary
 import com.artisthaven.engine.brush.BrushPreset
 
-/** Brush library: categories on the left, live stroke previews on the right. */
+/**
+ * Brush library: categories on the left, live stroke previews on the right. Long-press a brush (or
+ * tap "Make my own") to open it in the Brush Studio.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit) {
+fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit, onEdit: (BrushPreset) -> Unit) {
     val current = state.activeBrush
     var category by remember { mutableStateOf(current.category) }
     val previews by BrushPreviews.previews.collectAsState()
@@ -49,7 +57,13 @@ fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit) {
             ToolMode.ERASER -> "Erase with"
             else -> "Brush library"
         }
-        PanelTitle(title)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { PanelTitle(title) }
+            // Opens the Brush Studio on the current brush; built-in brushes are copied first.
+            TextButton(onClick = { onEdit(current) }, modifier = Modifier.padding(end = 6.dp).testTag("brush_edit")) {
+                Text(if (BrushLibrary.isCustom(current.id)) "Edit brush" else "Make my own", color = Haven.accent, fontSize = 13.sp)
+            }
+        }
         Row(Modifier.height(440.dp)) {
             LazyColumn(Modifier.width(118.dp).padding(start = 8.dp)) {
                 items(BrushCategory.entries) { c ->
@@ -69,8 +83,17 @@ fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit) {
                     )
                 }
             }
+            val brushes = remember(category, state.brushesVersion) { BrushLibrary.inCategory(category) }
+            if (brushes.isEmpty()) {
+                Text(
+                    "Brushes you make appear here. Pick any brush and tap \"Make my own\" to start from it.",
+                    color = Haven.textDim,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
             LazyColumn(Modifier.padding(horizontal = 8.dp)) {
-                items(BrushLibrary.inCategory(category), key = { it.id }) { brush ->
+                items(brushes, key = { it.id }) { brush ->
                     val sel = brush.id == current.id
                     Column(
                         Modifier
@@ -78,7 +101,7 @@ fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit) {
                             .padding(vertical = 3.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (sel) Haven.accentSoft else Haven.panelRaised)
-                            .clickable { onSelect(brush) }
+                            .combinedClickable(onClick = { onSelect(brush) }, onLongClick = { onEdit(brush) })
                             .padding(8.dp)
                             .testTag("brush_${brush.id}"),
                     ) {
