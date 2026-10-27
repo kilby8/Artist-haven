@@ -228,9 +228,9 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
             // A clear reminder that brushes are painting the mask, not the picture.
             Row(
                 Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 60.dp)
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 76.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Haven.bar)
                     .padding(start = 12.dp)
