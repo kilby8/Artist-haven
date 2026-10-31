@@ -2,18 +2,22 @@ name: Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'gauntlet/**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *' # daily at 02:00 UTC
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -22,72 +26,67 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK command-line tools
-        run: |
-          set -eux
-          mkdir -p "$ANDROID_SDK_ROOT"
-          cd "$ANDROID_SDK_ROOT"
-          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            curl -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-9123335_latest.zip
-            unzip cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          fi
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-
-      - name: Install required SDK packages
-        run: |
-          set -eux
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-
-      - name: Accept SDK licenses
-        run: |
-          set -eux
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-cache-${{ runner.os }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-cache-${{ runner.os }}-
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
 
-      - name: Grant execute permission for Gradle wrapper
-        run: chmod +x ./gradlew
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Build app (assembleDebug)
-        run: ./gradlew :app:assembleDebug --no-daemon
+      - name: Build, lint and test
+        run: ./gradlew --no-daemon --continue :engine:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
-      - name: Upload APK artifact
+      - name: Upload debug APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: artist-haven-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
 
-      - name: Create GitHub Release (draft)
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload test reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: build-${{ github.run_number }}
-          release_name: "CI Build #${{ github.run_number }}"
-          body: "Automated CI build for commit ${{ github.sha }}"
-          draft: true
+          name: reports
+          path: |
+            engine/build/reports/
+            engine/build/test-output/
+            app/build/reports/
+            app/build/test-output/
+          if-no-files-found: ignore
 
-      - name: Upload APK to Release
-        uses: actions/upload-release-asset@v1
+      # Test screenshots and reports also go to a ci-output/<branch> branch, so they can be viewed
+      # without downloading artifacts. Only on pushes to this repository.
+      - name: Publish test output to a branch
+        if: always() && github.event_name == 'push'
+        run: |
+          out=$(mktemp -d)
+          for d in engine/build/test-output app/build/test-output app/build/reports/lint-results-debug.html app/build/test-results; do
+            [ -e "$d" ] && mkdir -p "$out/$(dirname $d)" && cp -r "$d" "$out/$d"
+          done
+          cd "$out"
+          git init -q -b output
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "CI output for ${GITHUB_SHA}" || exit 0
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" "output:refs/heads/ci-output/${GITHUB_REF_NAME}"
+
+      # A pre-release with the APK attached gives a plain download link that works on a phone
+      # without signing in to GitHub. Replaced on every push to the branch.
+      - name: Publish preview APK as a pre-release
+        if: success() && github.event_name == 'push'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: app/build/outputs/apk/debug/app-debug.apk
-          asset_name: app-debug.apk
-          asset_content_type: application/vnd.android.package-archive
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="preview-${GITHUB_REF_NAME//\//-}"
+          cp app/build/outputs/apk/debug/app-debug.apk artist-haven.apk
+          gh release delete "$tag" --yes --cleanup-tag || true
+          gh release create "$tag" artist-haven.apk --prerelease --target "$GITHUB_SHA" \
+            --title "Artist Haven preview (${GITHUB_REF_NAME})" \
+            --notes "Debug build of ${GITHUB_SHA::7}. Download artist-haven.apk on an Android 8+ phone and open it to install."

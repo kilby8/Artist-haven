@@ -25,11 +25,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create APK Placeholder
-        run: |
-          mkdir -p app/build/outputs/apk/debug
-          dd if=/dev/zero of=app/build/outputs/apk/debug/app-debug.apk bs=1M count=10
-
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
