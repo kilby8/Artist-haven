@@ -48,6 +48,31 @@ class Mask(val size: Int, val data: FloatArray) {
     }
 }
 
+/** A square greyscale picture tip: 255 is full paint. Stored in brushes as Base64 text. */
+class TipImage(val size: Int, val data: ByteArray) {
+    init {
+        require(size > 0 && data.size == size * size) { "tip image must be square" }
+    }
+
+    fun encode(): String {
+        val bytes = ByteArray(2 + data.size)
+        bytes[0] = (size shr 8).toByte()
+        bytes[1] = size.toByte()
+        System.arraycopy(data, 0, bytes, 2, data.size)
+        return java.util.Base64.getEncoder().encodeToString(bytes)
+    }
+
+    fun toMask(): Mask = Mask(size, FloatArray(data.size) { (data[it].toInt() and 0xFF) / 255f })
+
+    companion object {
+        fun decode(text: String): TipImage? = runCatching {
+            val bytes = java.util.Base64.getDecoder().decode(text)
+            val size = ((bytes[0].toInt() and 0xFF) shl 8) or (bytes[1].toInt() and 0xFF)
+            TipImage(size, bytes.copyOfRange(2, bytes.size))
+        }.getOrNull()
+    }
+}
+
 /** Brush tip shapes, generated procedurally so the app ships no image assets. */
 enum class TipShape(val displayName: String) {
     ROUND("Round"),
@@ -79,6 +104,19 @@ object Textures {
 
     private val tipCache = HashMap<Pair<TipShape, Int>, Mask>()
     private val grainCache = HashMap<GrainTexture, Mask>()
+
+    private val imageCache = object : LinkedHashMap<String, Mask>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Mask>?) = size > 32
+    }
+
+    /** The tip a brush paints with: its picture tip if it has one, otherwise its shape. */
+    @Synchronized
+    fun tipFor(brush: BrushPreset): Mask {
+        val image = brush.tipImage ?: return tip(brush.tip, brush.hardness)
+        return imageCache.getOrPut(image) {
+            TipImage.decode(image)?.toMask() ?: buildTip(TipShape.ROUND, brush.hardness)
+        }
+    }
 
     /** Tip mask for a shape; [hardness] (0..1) is quantised so masks can be cached. */
     @Synchronized

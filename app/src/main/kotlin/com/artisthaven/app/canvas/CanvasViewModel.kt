@@ -389,6 +389,43 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
         showMessage("Saved to My brushes")
     }
 
+    /**
+     * Adds the brushes in a Photoshop brush file (.abr) or one of our own brush files to My
+     * brushes. Brushes already imported from the same file are replaced, not duplicated.
+     */
+    fun importBrushes(uri: android.net.Uri) {
+        val app = getApplication<Application>()
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val name = com.artisthaven.app.data.FileImport.displayName(app, uri, "Brushes")
+                    val bytes = com.artisthaven.app.data.FileImport.readBytes(app, uri, maxBytes = 200L * 1024 * 1024)
+                    val first = bytes.firstOrNull { !it.toInt().toChar().isWhitespace() }?.toInt()?.toChar()
+                    if (first == '[' || first == '{') {
+                        val own = com.artisthaven.engine.brush.BrushCodec.decode(String(bytes, Charsets.UTF_8))
+                        require(own.isNotEmpty()) { "That isn't a brush file" }
+                        own.map { it.copy(category = BrushCategory.MINE) } to emptyList<String>()
+                    } else {
+                        val abr = com.artisthaven.engine.io.AbrReader.read(bytes, name)
+                        abr.brushes.take(MAX_IMPORTED_BRUSHES) to abr.warnings
+                    }
+                }
+            }
+            _state.update { it.copy(busy = false) }
+            result.onFailure { t -> showMessage("Couldn't import brushes: ${t.message ?: "the file may be damaged"}") }
+            result.onSuccess { (brushes, _) ->
+                val ids = brushes.map { it.id }.toSet()
+                val next = BrushLibrary.custom.filter { it.id !in ids } + brushes
+                BrushLibrary.custom = next
+                viewModelScope.launch(Dispatchers.IO) { runCatching { brushStore.save(next) } }
+                BrushPreviews.refreshAll(brushes)
+                _state.update { it.copy(brushesVersion = it.brushesVersion + 1) }
+                showMessage(if (brushes.size == 1) "Added 1 brush to My brushes" else "Added ${brushes.size} brushes to My brushes")
+            }
+        }
+    }
+
     fun deleteStudioBrush() {
         val brush = _state.value.studio ?: return
         val next = BrushLibrary.custom.filter { it.id != brush.id }
@@ -564,6 +601,9 @@ class CanvasViewModel(app: Application, val projectId: String) : AndroidViewMode
     }
 
     companion object {
+        /** Most brushes taken from one brush file; big packs would make the library slow. */
+        const val MAX_IMPORTED_BRUSHES = 300
+
         /** Undo memory: a quarter of the app's heap, between 64 and 512 MB. */
         fun historyBudget(context: Context): Long {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager

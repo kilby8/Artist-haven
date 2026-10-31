@@ -61,6 +61,20 @@ class ProjectStore(context: Context) {
 
     fun load(id: String): Pair<Document, ProjectManifest> = ProjectCodec.load(dir(id))
 
+    /**
+     * Makes a new artwork from a Photoshop file, scaled down if it is bigger than [maxSide].
+     * Returns its id and anything that didn't come across exactly. Call off the main thread.
+     */
+    fun importPsd(context: Context, uri: android.net.Uri, maxSide: Int): Pair<String, List<String>> {
+        val name = FileImport.displayName(context, uri, "Photoshop file").substringBeforeLast('.')
+        val bytes = FileImport.readBytes(context, uri, maxBytes = 400L * 1024 * 1024)
+        val result = com.artisthaven.engine.io.PsdReader.read(bytes, maxSide)
+        val id = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        save(id, result.doc, name.ifBlank { "Photoshop file" }, now, now, changedLayers = null)
+        return id to result.warnings
+    }
+
     /** Saves the project and refreshes its gallery thumbnail. Call on the engine thread. */
     fun save(
         id: String,

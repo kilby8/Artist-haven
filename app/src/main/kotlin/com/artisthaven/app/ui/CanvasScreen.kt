@@ -204,7 +204,7 @@ fun CanvasScreen(vm: CanvasViewModel, onExit: () -> Unit) {
                         shadowElevation = 12.dp,
                     ) {
                         when (panel) {
-                            Panel.BRUSHES -> BrushLibraryPanel(state, onSelect = vm::selectBrush, onEdit = vm::openStudio)
+                            Panel.BRUSHES -> BrushLibraryPanel(state, onSelect = vm::selectBrush, onEdit = vm::openStudio, onImport = vm::importBrushes)
                             Panel.COLORS -> ColorPanel(
                                 state = state,
                                 onColor = { c, final -> vm.setColor(c, addToRecent = final) },

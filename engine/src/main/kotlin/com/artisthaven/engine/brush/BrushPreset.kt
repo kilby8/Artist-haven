@@ -18,6 +18,12 @@ enum class RenderMode {
      * and pigment settling into the paper, then glazes over what is underneath.
      */
     WASH,
+
+    /**
+     * Mixer Brush: a reservoir of loaded paint that runs dry, mixed with colour the brush picks up
+     * from the canvas, like real paint on a loaded brush.
+     */
+    MIXER,
 }
 
 /** Which way the tip faces. */
@@ -41,6 +47,11 @@ data class BrushPreset(
 
     // Shape.
     val tip: TipShape = TipShape.ROUND,
+    /**
+     * A picture tip (for example from an imported Photoshop brush), as [TipImage.encode] text.
+     * When set it replaces [tip]; hardness doesn't apply to it.
+     */
+    val tipImage: String? = null,
     val hardness: Float = 0.9f,
     val roundness: Float = 1f,
     val tipAngle: TipAngle = TipAngle.FOLLOW_STROKE,
@@ -82,6 +93,18 @@ data class BrushPreset(
     val charge: Float = 1f,
     val pull: Float = 0f,
 
+    // Mixer Brush (MIXER mode only), all 0..1.
+    /** How much paint the brush picks up from the canvas. */
+    val mixerWet: Float = 0.5f,
+    /** How much paint the brush holds; low Load runs dry quickly. */
+    val mixerLoad: Float = 0.5f,
+    /** How much of the picked-up colour is in the paint, against the loaded colour. */
+    val mixerMix: Float = 0.5f,
+    /** Pick up colour from everything you see, not just the current layer. */
+    val mixerSampleAll: Boolean = false,
+    /** Empty the brush after every stroke; off keeps it dirty from stroke to stroke. */
+    val mixerClean: Boolean = true,
+
     // Bristles (bristle tip only).
     /** 0..1. How quickly bristles run out of paint, leaving dry-brush streaks. */
     val dryOut: Float = 0f,
@@ -112,6 +135,9 @@ data class BrushPreset(
 
     /** Strength when this brush is used by the Smudge tool, 0..1. */
     val smudgeStrength: Float = 0.75f,
+
+    /** The brush file this brush was imported from, shown in the library; null for our own. */
+    val importedFrom: String? = null,
 )
 
 enum class BrushCategory(val displayName: String) {
@@ -209,6 +235,34 @@ object BrushLibrary {
             grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 1f, tooth = 0.8f,
             dryOut = 0.7f, impasto = 0.6f, streakColour = 0.6f,
             pressureSize = 0.3f, pressureFlow = 0.6f, smudgeStrength = 0.85f,
+        ),
+        BrushPreset(
+            id = "mixer_oil", name = "Mixer Oil", category = BrushCategory.PAINTING,
+            defaultSize = 45f, maxSize = 350f,
+            tip = TipShape.BRISTLE, spacing = 0.04f,
+            streamline = 0.15f, renderMode = RenderMode.MIXER, flow = 0.9f,
+            mixerWet = 0.6f, mixerLoad = 0.6f, mixerMix = 0.5f,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.6f, tooth = 0.4f,
+            impasto = 0.25f, streakColour = 0.3f,
+            pressureSize = 0.35f, pressureFlow = 0.5f,
+        ),
+        BrushPreset(
+            id = "mixer_blender", name = "Blender", category = BrushCategory.PAINTING,
+            defaultSize = 60f, maxSize = 400f,
+            tip = TipShape.ROUND, hardness = 0.35f, spacing = 0.05f,
+            streamline = 0.25f, renderMode = RenderMode.MIXER, flow = 0.8f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true,
+            pressureSize = 0.3f, pressureFlow = 0.7f,
+        ),
+        BrushPreset(
+            id = "mixer_dirty", name = "Dirty Brush", category = BrushCategory.PAINTING,
+            defaultSize = 40f, maxSize = 300f,
+            tip = TipShape.ROUND, hardness = 0.55f, spacing = 0.05f,
+            streamline = 0.2f, taperStart = 1f, taperEnd = 1.5f, taperMinSize = 0.3f,
+            renderMode = RenderMode.MIXER, flow = 0.85f,
+            mixerWet = 0.5f, mixerLoad = 0.7f, mixerMix = 0.4f, mixerClean = false,
+            grain = GrainTexture.PAPER, grainScale = 1f, grainDepth = 0.3f,
+            pressureSize = 0.5f, pressureFlow = 0.5f,
         ),
         // Watercolour
         BrushPreset(

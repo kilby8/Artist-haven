@@ -8,9 +8,9 @@
 ## Engine (`engine/src/main/kotlin/com/artisthaven/engine`)
 - `raster/`: 64x64 tiled premultiplied ARGB surfaces (empty tiles are null), pixel maths.
 - `document/`: `Document`, `Layer`, `BlendMode` (13 W3C modes), `Compositor` (outputs straight ARGB), `History` (tile before/after snapshots with a byte budget).
-- `brush/`: `BrushPreset` + `BrushLibrary` (18 brushes), procedural tips and grain in `Textures`.
-- `stroke/`: `StrokeSession` does smoothing (StreamLine), spacing, taper, dynamics, glaze and wet rendering, symmetry.
-- `tools/`: flood fill, QuickShape recognition. `io/`: project folder format (`ProjectCodec`), layered PSD export (`PsdWriter`).
+- `brush/`: `BrushPreset` + `BrushLibrary` (21 brushes), procedural tips and grain in `Textures`.
+- `stroke/`: `StrokeSession` does smoothing (StreamLine), spacing, taper, dynamics, glaze, wet, wash and Mixer rendering, symmetry. `MixerState` is the paint the Mixer Brush carries between strokes (owned by `Editor`).
+- `tools/`: flood fill, QuickShape recognition. `io/`: project folder format (`ProjectCodec`), layered PSD export (`PsdWriter`) and import (`PsdReader`), Photoshop brush import (`AbrReader`). Code ported from PhotoCraft is listed in `THIRD_PARTY_NOTICES.md`; keep its MIT notice.
 - `Editor` is the single entry point; every mutating action returns a `Change` and pushes a `Command` so undo works.
 - The engine is not thread safe. The app only touches it from the `EngineHost` thread.
 

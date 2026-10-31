@@ -1,6 +1,8 @@
 package com.artisthaven.app.ui
 
 import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -76,6 +78,12 @@ data class CanvasPreset(val name: String, val width: Int, val height: Int)
 /** Largest canvas side we allow, to stay inside phone memory with undo history. */
 const val MAX_CANVAS_SIDE = 4096
 
+/** What the file picker offers for Open PSD; downloads are often labelled as plain binary. */
+private val PSD_TYPES = arrayOf(
+    "image/vnd.adobe.photoshop", "application/x-photoshop", "application/photoshop", "image/psd",
+    "application/psd", "application/octet-stream",
+)
+
 /** Your artworks, newest first, and the button to start a new one. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -88,6 +96,20 @@ fun GalleryScreen(store: ProjectStore, onOpen: (String) -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
     var creating by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<ProjectSummary?>(null) }
+    var importing by remember { mutableStateOf(false) }
+
+    // Opens a Photoshop file as a new artwork, keeping its layers.
+    val openPsd = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        importing = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { store.importPsd(context, uri, MAX_CANVAS_SIDE) } }
+            importing = false
+            result.onSuccess { (id, _) -> onOpen(id) }.onFailure { t ->
+                snackbar.showSnackbar("Couldn't open that file: ${t.message ?: "it may be damaged"}", duration = SnackbarDuration.Long)
+            }
+        }
+    }
 
     LaunchedEffect(reload) {
         val list = withContext(Dispatchers.IO) {
@@ -113,7 +135,12 @@ fun GalleryScreen(store: ProjectStore, onOpen: (String) -> Unit) {
     Box(Modifier.fillMaxSize().background(Haven.background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Gallery", color = Haven.text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+                Text("Gallery", color = Haven.text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                TextButton(
+                    onClick = { openPsd.launch(PSD_TYPES) },
+                    enabled = !importing,
+                    modifier = Modifier.testTag("open_psd"),
+                ) { Text(if (importing) "Opening…" else "Open PSD", color = Haven.accent) }
             }
             val list = projects
             if (list != null && list.isEmpty()) {

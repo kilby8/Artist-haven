@@ -1,5 +1,8 @@
 package com.artisthaven.app.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -46,9 +49,21 @@ import com.artisthaven.engine.brush.BrushPreset
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit, onEdit: (BrushPreset) -> Unit) {
+fun BrushLibraryPanel(
+    state: CanvasUiState,
+    onSelect: (BrushPreset) -> Unit,
+    onEdit: (BrushPreset) -> Unit,
+    onImport: (Uri) -> Unit,
+) {
     val current = state.activeBrush
     var category by remember { mutableStateOf(current.category) }
+    // Photoshop brushes (.abr) and shared brush files have no standard type, so allow any file.
+    val pickBrushes = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            category = BrushCategory.MINE
+            onImport(uri)
+        }
+    }
     val previews by BrushPreviews.previews.collectAsState()
 
     Column {
@@ -59,6 +74,9 @@ fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit, onE
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { PanelTitle(title) }
+            TextButton(onClick = { pickBrushes.launch(arrayOf("*/*")) }, enabled = !state.busy, modifier = Modifier.testTag("brush_import")) {
+                Text("Import", color = Haven.accent, fontSize = 13.sp)
+            }
             // Opens the Brush Studio on the current brush; built-in brushes are copied first.
             TextButton(onClick = { onEdit(current) }, modifier = Modifier.padding(end = 6.dp).testTag("brush_edit")) {
                 Text(if (BrushLibrary.isCustom(current.id)) "Edit brush" else "Make my own", color = Haven.accent, fontSize = 13.sp)
@@ -86,7 +104,8 @@ fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit, onE
             val brushes = remember(category, state.brushesVersion) { BrushLibrary.inCategory(category) }
             if (brushes.isEmpty()) {
                 Text(
-                    "Brushes you make appear here. Pick any brush and tap \"Make my own\" to start from it.",
+                    "Brushes you make appear here. Pick any brush and tap \"Make my own\" to start from it, " +
+                        "or tap Import to add Photoshop brushes (.abr).",
                     color = Haven.textDim,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(12.dp),
@@ -106,6 +125,7 @@ fun BrushLibraryPanel(state: CanvasUiState, onSelect: (BrushPreset) -> Unit, onE
                             .testTag("brush_${brush.id}"),
                     ) {
                         Text(brush.name, color = Haven.text, fontSize = 13.sp)
+                        brush.importedFrom?.let { Text("from $it", color = Haven.textDim, fontSize = 11.sp) }
                         Box(Modifier.fillMaxWidth().height(48.dp)) {
                             previews[brush.id]?.let { bmp ->
                                 Image(

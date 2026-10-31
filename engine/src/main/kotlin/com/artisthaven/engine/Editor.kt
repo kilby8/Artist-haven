@@ -44,6 +44,9 @@ class Editor(val doc: Document, val history: History = History()) {
     private var transformQuality = Resample.SMOOTH
     private var seed = 1
 
+    /** Paint on the Mixer Brush, kept between strokes like a real brush. */
+    val mixerState = com.artisthaven.engine.stroke.MixerState()
+
     val isStroking: Boolean get() = stroke != null
     val isTransforming: Boolean get() = transform != null
 
@@ -60,7 +63,7 @@ class Editor(val doc: Document, val history: History = History()) {
         if (transform != null) return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         if (!layer.visible) return Change.NONE
-        val s = StrokeSession(doc, layer, params.copy(seed = seed++))
+        val s = StrokeSession(doc, layer, params.copy(seed = seed++), mixerState)
         stroke = s
         return Change(s.add(first), false)
     }

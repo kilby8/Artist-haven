@@ -117,7 +117,16 @@ fun BrushStudio(
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Group("Shape")
-            Choice("Tip", TipShape.entries, brush.tip, { it.displayName }) { onChange(brush.copy(tip = it)) }
+            if (brush.tipImage != null) {
+                Text(
+                    "Picture tip${brush.importedFrom?.let { " from $it" } ?: ""}. Pick a tip below to replace it.",
+                    color = Haven.textDim,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            // Choosing a shape replaces a picture tip.
+            Choice("Tip", TipShape.entries, brush.tip, { it.displayName }) { onChange(brush.copy(tip = it, tipImage = null)) }
             Value("Hardness", brush.hardness, 0f..1f, pct) { onChange(brush.copy(hardness = it)) }
             Value("Roundness", brush.roundness, 0.05f..1f, pct) { onChange(brush.copy(roundness = it)) }
             Choice("Tip faces", TipAngle.entries, brush.tipAngle, { angleName(it) }) { onChange(brush.copy(tipAngle = it)) }
@@ -161,6 +170,13 @@ fun BrushStudio(
                 Value("Charge", brush.charge, 0f..1f, pct) { onChange(brush.copy(charge = it)) }
                 Value("Pull", brush.pull, 0f..1f, pct) { onChange(brush.copy(pull = it)) }
             }
+            if (brush.renderMode == RenderMode.MIXER) {
+                Value("Wet", brush.mixerWet, 0f..1f, pct) { onChange(brush.copy(mixerWet = it)) }
+                Value("Load", brush.mixerLoad, 0f..1f, pct) { onChange(brush.copy(mixerLoad = it)) }
+                Value("Mix", brush.mixerMix, 0f..1f, pct) { onChange(brush.copy(mixerMix = it)) }
+                Toggle("Pick up from all layers", brush.mixerSampleAll) { onChange(brush.copy(mixerSampleAll = it)) }
+                Toggle("Clean the brush after each stroke", brush.mixerClean) { onChange(brush.copy(mixerClean = it)) }
+            }
             if (brush.renderMode == RenderMode.WASH) {
                 Value("Dark edges", brush.edgeDarken, 0f..1f, pct) { onChange(brush.copy(edgeDarken = it)) }
                 Value("Granulation", brush.granulation, 0f..1f, pct) { onChange(brush.copy(granulation = it)) }
@@ -201,6 +217,7 @@ private fun renderName(mode: RenderMode) = when (mode) {
     RenderMode.GLAZE -> "Glaze (even)"
     RenderMode.WET -> "Wet (mixes)"
     RenderMode.WASH -> "Watercolour"
+    RenderMode.MIXER -> "Mixer (picks up paint)"
 }
 
 private fun angleName(a: TipAngle) = when (a) {

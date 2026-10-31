@@ -53,10 +53,20 @@ object BrushPreviews {
         }
     }
 
+    /** Renders previews for newly imported brushes, one after another. */
+    fun refreshAll(brushes: List<BrushPreset>) {
+        scope.launch {
+            for (brush in brushes) {
+                val bmp = render(brush)
+                _previews.update { it + (brush.id to bmp) }
+            }
+        }
+    }
+
     fun render(brush: BrushPreset, color: Int = 0xFFF2F2F2.toInt()): Bitmap {
         val doc = Document.blank(W, H, paperColor = 0xFF2B2B31.toInt())
         val editor = Editor(doc)
-        if (brush.renderMode == RenderMode.WET) {
+        if (brush.renderMode == RenderMode.WET || brush.renderMode == RenderMode.MIXER) {
             stroke(editor, BrushLibrary.byId("hard_airbrush"), 0xFF8E7DBE.toInt(), 22f, line(W * 0.55f, 14f, W * 0.55f, H - 14f))
         }
         val size = brush.defaultSize.coerceIn(5f, 30f)

@@ -40,16 +40,25 @@ class StrokeSession(
     private val doc: Document,
     private val layer: Layer,
     val params: StrokeParams,
+    /** Paint the Mixer Brush carries from stroke to stroke; a fresh one is used if null. */
+    mixerState: MixerState? = null,
 ) {
     private val brush: BrushPreset = params.brush
     private val onMask: Boolean = doc.paintsMask(layer)
     private val surface: TiledSurface = doc.paintSurface(layer)
-    private val tip: Mask = Textures.tip(brush.tip, brush.hardness)
+    private val tip: Mask = Textures.tipFor(brush)
     private val grain: Mask? = Textures.grain(brush.grain)
     private val glaze: Boolean =
         params.tool == Tool.ERASER || (params.tool == Tool.BRUSH && brush.renderMode == RenderMode.GLAZE)
     private val wash: Boolean = params.tool == Tool.BRUSH && brush.renderMode == RenderMode.WASH
-    private val bristly: Boolean = brush.tip == TipShape.BRISTLE
+    private val mixer: Boolean = params.tool == Tool.BRUSH && brush.renderMode == RenderMode.MIXER
+    private val mixerState: MixerState = mixerState ?: MixerState()
+    /** The mixer's paint as the stroke began, so a replay starts from the same load. */
+    private val mixerStart: MixerState
+    private val bristly: Boolean = brush.tip == TipShape.BRISTLE && brush.tipImage == null
+    /** Picture tips are square, so their corners reach past the radius when rotated. */
+    private val pictureTip: Boolean = brush.tipImage != null
+    private val reachScale: Float = if (pictureTip) 1.415f else 1f
 
     /** How far into the paper tooth the current dab reaches (pressure and tilt). */
     private var reach = 1f
@@ -74,6 +83,8 @@ class StrokeSession(
     private val cb = Pixels.blue(params.color) / 255f
 
     init {
+        if (mixer) this.mixerState.beginStroke(params.color)
+        mixerStart = this.mixerState.copy()
         resetPaths()
     }
 
@@ -92,6 +103,7 @@ class StrokeSession(
             dirty = IRect.unionOf(dirty, replay(raw, taperAware = true))
         }
         finished = true
+        if (mixer) mixerState.endStroke(params.color, brush.mixerClean)
         val command = PixelCommand.capture(label(), layer, originals, onMask)
         return StrokeResult(IRect.unionOf(dirty, totalDirty), command)
     }
@@ -107,6 +119,7 @@ class StrokeSession(
     /** Puts the layer back the way it was before the stroke. */
     fun cancel(): IRect? {
         restoreOriginals()
+        if (mixer) mixerState.restore(mixerStart)
         finished = true
         return totalDirty
     }
@@ -430,6 +443,7 @@ class StrokeSession(
         reach = if (bristly) 0.85f + 0.3f * pr else (0.4f + 0.7f * pr) * (1f - 0.45f * tn * brush.tiltOpacity)
         return when {
             wash -> washDab(cx, cy, radius, angle, alpha, dabFlow)
+            mixer -> mixerDab(s, cx, cy, radius, angle, dabFlow * opacity, grainDepth)
             glaze -> {
                 var dirty = glazeDab(s, cx, cy, radius, angle, alpha, dabFlow, grainDepth)
                 if (brush.dust > 0f && radius > 2f && params.tool == Tool.BRUSH) {
@@ -483,7 +497,9 @@ class StrokeSession(
             val t = 1f - (if (u < 0f) -u else u) / 0.45f
             m = t * (2f - t) * b.coverAt(v)
         } else {
-            if (u * u + v * v > 1.02f) return -1f
+            if (pictureTip && !roundDab) {
+                if (u < -1f || u > 1f || v < -1f || v > 1f) return -1f
+            } else if (u * u + v * v > 1.02f) return -1f
             m = if (roundDab) roundTip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
             else tip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
         }
@@ -532,6 +548,13 @@ class StrokeSession(
         return Pixels.lerp(before, current, 0.3f)
     }
 
+    /** The layer's pixel at (x, y) as it was before this stroke (premultiplied). */
+    private fun originalPixel(x: Int, y: Int): Int {
+        val index = (y shr TiledSurface.SHIFT) * surface.tilesX + (x shr TiledSurface.SHIFT)
+        if (!originals.containsKey(index)) return surface.getPixel(x, y)
+        return originals[index]?.get(((y and TiledSurface.MASK) shl TiledSurface.SHIFT) or (x and TiledSurface.MASK)) ?: 0
+    }
+
     private fun originalTile(index: Int): IntArray? {
         if (!originals.containsKey(index)) originals[index] = surface.copyTile(index)
         return originals[index]
@@ -548,7 +571,7 @@ class StrokeSession(
         grainDepth: Float,
         round: Boolean = false,
     ): IRect? {
-        val rect = IRect.of(cx - radius - 1, cy - radius - 1, cx + radius + 1, cy + radius + 1)
+        val rect = IRect.of(cx - radius * reachScale - 1, cy - radius * reachScale - 1, cx + radius * reachScale + 1, cy + radius * reachScale + 1)
             .intersect(doc.bounds)
         if (rect.isEmpty) return null
         roundDab = round
@@ -627,7 +650,7 @@ class StrokeSession(
         grainDepth: Float,
         distance: Float,
     ): IRect? {
-        val rect = IRect.of(cx - radius - 1, cy - radius - 1, cx + radius + 1, cy + radius + 1)
+        val rect = IRect.of(cx - radius * reachScale - 1, cy - radius * reachScale - 1, cx + radius * reachScale + 1, cy + radius * reachScale + 1)
             .intersect(doc.bounds)
         if (rect.isEmpty) return null
         val cosA = cos(angle)
@@ -776,6 +799,159 @@ class StrokeSession(
         return rect
     }
 
+    private var mixerSampleBuf = IntArray(0)
+
+    /**
+     * Mixer Brush dab: picks up the colour under the brush into its pickup well, mixes that with
+     * what is left in the reservoir, and lays the mix down. The reservoir drains a little with
+     * every dab unless Load is full, so low-Load strokes fade out as the brush runs dry.
+     */
+    private fun mixerDab(
+        s: PathState,
+        cx: Float,
+        cy: Float,
+        radius: Float,
+        angle: Float,
+        amount: Float,
+        grainDepth: Float,
+    ): IRect? {
+        val rr = radius * reachScale
+        val rect = IRect.of(cx - rr - 1, cy - rr - 1, cx + rr + 1, cy + rr + 1).intersect(doc.bounds)
+        if (rect.isEmpty) return null
+        val cosA = cos(angle)
+        val sinA = sin(angle)
+        val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
+        val m = mixerState
+        val wet = brush.mixerWet.coerceIn(0f, 1f)
+        val mix = brush.mixerMix.coerceIn(0f, 1f)
+        // Rates are tuned for dabs a quarter of the brush apart; closer dabs each do less.
+        val perDab = (brush.spacing / 0.25f).coerceIn(0.05f, 1f)
+
+        if (wet > 0f) {
+            // The brush picks up the paint that was there before this stroke, so a smear can't
+            // keep feeding on its own paint.
+            val sampleAll = brush.mixerSampleAll
+            if (sampleAll) {
+                val n = rect.width * rect.height
+                if (mixerSampleBuf.size < n) mixerSampleBuf = IntArray(n)
+                val swapped = ArrayList<Pair<Int, IntArray?>>()
+                for (index in surface.tilesIn(rect)) {
+                    if (originals.containsKey(index)) {
+                        swapped += index to surface.tile(index)
+                        surface.setTile(index, originals[index])
+                    }
+                }
+                try {
+                    com.artisthaven.engine.document.Compositor.composite(
+                        doc, rect, mixerSampleBuf, originX = rect.left, originY = rect.top, stride = rect.width, withPaper = false,
+                    )
+                } finally {
+                    for ((index, tile) in swapped) surface.setTile(index, tile)
+                }
+            }
+            var ar = 0f
+            var ag = 0f
+            var ab = 0f
+            var asum = 0f
+            var wsum = 0f
+            val step = max(1, (radius / 4f).toInt())
+            var sy = rect.top
+            while (sy < rect.bottom) {
+                var sx = rect.left
+                while (sx < rect.right) {
+                    val w = maskAt(s, sx + 0.5f, sy + 0.5f, cx, cy, radius, cosA, sinA, invRound, 0f)
+                    if (w > 0f) {
+                        // Straight colour and its alpha.
+                        val c = if (sampleAll) mixerSampleBuf[(sy - rect.top) * rect.width + (sx - rect.left)]
+                        else Pixels.unpremultiply(originalPixel(sx, sy))
+                        val al = (c ushr 24) / 255f
+                        ar += ((c shr 16) and 0xFF) / 255f * w * al
+                        ag += ((c shr 8) and 0xFF) / 255f * w * al
+                        ab += (c and 0xFF) / 255f * w * al
+                        asum += w * al
+                        wsum += w
+                    }
+                    sx += step
+                }
+                sy += step
+            }
+            val cover = if (wsum > 0f) asum / wsum else 0f
+            if (asum > 1e-4f) {
+                val canvas = floatArrayOf(ar / asum, ag / asum, ab / asum)
+                val p = m.pickup
+                if (p == null) {
+                    m.pickup = canvas
+                    m.pickupAmount = cover
+                } else {
+                    val k = MixerState.PICKUP_RATE * wet * cover * perDab
+                    for (i in 0..2) p[i] += (canvas[i] - p[i]) * k
+                }
+            }
+            // Dragging over bare canvas thins out what the brush picked up; paint tops it up.
+            // Some is always used up, so a smear can't keep feeding on itself forever.
+            if (m.pickup != null) {
+                m.pickupAmount += (cover - m.pickupAmount) * MixerState.PICKUP_RATE * wet * perDab
+                m.pickupAmount *= 1f - 0.06f * perDab
+            }
+        }
+
+        val res = m.reservoir
+        val pickup = m.pickup
+        val wr = if (res != null) m.amount.coerceIn(0f, 1f) * (1f - mix * wet) else 0f
+        val wp = if (pickup != null) mix * wet * m.pickupAmount.coerceIn(0f, 1f) else 0f
+        val total = wr + wp
+        m.amount *= 1f - 0.08f * (1f - brush.mixerLoad.coerceIn(0f, 1f)) * perDab
+        if (total <= 1e-5f) return rect
+
+        val pr = ((res?.get(0) ?: 0f) * wr + (pickup?.get(0) ?: 0f) * wp) / total
+        val pg = ((res?.get(1) ?: 0f) * wr + (pickup?.get(1) ?: 0f) * wp) / total
+        val pb = ((res?.get(2) ?: 0f) * wr + (pickup?.get(2) ?: 0f) * wp) / total
+        val paint = Pixels.pack(255, (pr * 255f + 0.5f).toInt().coerceIn(0, 255), (pg * 255f + 0.5f).toInt().coerceIn(0, 255), (pb * 255f + 0.5f).toInt().coerceIn(0, 255))
+        val deposit = (min(total, 1f) * amount * params.opacity).coerceIn(0f, 1f)
+
+        val shift = TiledSurface.SHIFT
+        val b = s.bristles
+        val light = (sinA * 0.6f - cosA * 0.8f) * brush.impasto * 1.2f
+        val alphaLock = layer.alphaLock && !onMask
+        for (index in surface.tilesIn(rect)) {
+            originalTile(index)
+            var dest: IntArray? = surface.tile(index)
+            if (alphaLock && dest == null) continue
+            if (selection != null && selection.tileEmpty(index)) continue
+            val r = rect.intersect(surface.tileRect(index))
+            for (y in r.top until r.bottom) {
+                val row = (y and TiledSurface.MASK) shl shift
+                for (x in r.left until r.right) {
+                    val w = maskAt(s, x + 0.5f, y + 0.5f, cx, cy, radius, cosA, sinA, invRound, grainDepth)
+                    if (w <= 0f) continue
+                    val i = row or (x and TiledSurface.MASK)
+                    val d = dest?.get(i) ?: 0
+                    var src = paint
+                    if (b != null) {
+                        val v = (-(x + 0.5f - cx) * sinA + (y + 0.5f - cy) * cosA) / radius * invRound
+                        val lane = b.laneOf(v)
+                        src = shadePaint(paint, 1f + b.tint[lane] + b.slope[lane] * light)
+                    }
+                    var out = Pixels.lerp(d, src, w * deposit)
+                    if (alphaLock) {
+                        val da = Pixels.alpha(d)
+                        val oa = Pixels.alpha(out)
+                        out = if (oa == 0) d else Pixels.scale(out, da / oa.toFloat()).let {
+                            Pixels.pack(da, Pixels.red(it), Pixels.green(it), Pixels.blue(it))
+                        }
+                    }
+                    if (selection != null) out = Pixels.lerp(d, out, selection.coverage(x, y))
+                    if (dest == null) {
+                        if (out == 0) continue
+                        dest = surface.tileOrCreate(index)
+                    }
+                    dest[i] = out
+                }
+            }
+        }
+        return rect
+    }
+
     /** Lightens or darkens a premultiplied colour by [k], keeping its alpha. */
     private fun shadePaint(c: Int, k: Float): Int {
         if (k == 1f) return c
@@ -809,7 +985,7 @@ class StrokeSession(
     private val rimWidth: Float = (params.size * 0.1f).coerceIn(2f, 10f)
 
     private fun washDab(cx: Float, cy: Float, radius: Float, angle: Float, pigment: Float, flow: Float): IRect? {
-        val rect = IRect.of(cx - radius - 1, cy - radius - 1, cx + radius + 1, cy + radius + 1)
+        val rect = IRect.of(cx - radius * reachScale - 1, cy - radius * reachScale - 1, cx + radius * reachScale + 1, cy + radius * reachScale + 1)
             .intersect(doc.bounds)
         if (rect.isEmpty) return null
         val cosA = cos(angle)
@@ -957,6 +1133,7 @@ class StrokeSession(
         washPigment.fill(null)
         washPending = null
         totalDirty = null
+        if (mixer) mixerState.restore(mixerStart)
 
         var length: Float? = null
         if (taperAware && brush.taperEnd > 0f) {
