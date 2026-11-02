@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A painted swoosh: coral to violet -->
+    <path
+        android:fillColor="#FFFF7A6B"
+        android:pathData="M30,72 C38,52 54,40 76,34 C70,44 60,56 46,66 C41,70 36,73 30,72 Z" />
+    <path
+        android:fillColor="#FFB28DFF"
+        android:pathData="M46,66 C60,56 70,44 76,34 C78,46 72,62 58,72 C54,75 50,74 46,66 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M28,78 C27,75 28,73 30,72 C33,73 34,76 32,79 C31,80 29,80 28,78 Z" />
+</vector>

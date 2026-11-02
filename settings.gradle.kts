@@ -16,16 +16,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven {
-            url = uri("https://androidx.dev/snapshots/latest/artifacts")
-            name = "AndroidX-Dev-Snapshots"
-        }
-        maven {
-            url = uri("https://maven.google.com")
-            name = "Google-Maven"
-        }
     }
 }
 
-rootProject.name = "Artist Haven"
+rootProject.name = "Artist-haven"
+include(":engine")
 include(":app")
