@@ -1297,6 +1297,7 @@ class StrokeSession(
 
     /** Whether earlier washes are still wet, checked once when the stroke starts painting. */
     private var canvasWetChecked = false
+    private var washSpeed = -1f
     private var lastBleedX = Float.NaN
     private var lastBleedY = Float.NaN
     private var canvasWet = false
@@ -1340,7 +1341,9 @@ class StrokeSession(
         val base = max(params.size, 2f)
         val load = 1f / (1f + distance / (brush.charge.coerceAtLeast(0.05f) * 30f * base))
         val landing = if (distance < base) 0.45f * (1f - distance / base) else 0f
-        val slow = (1f - speed).let { it * it } * 0.45f
+        // Speed is smoothed: from dab to dab it jitters, and that would show as bands.
+        washSpeed = if (washSpeed < 0f) speed else washSpeed + (speed - washSpeed) * 0.05f
+        val slow = (1f - washSpeed).let { it * it } * 0.45f
         val wander = 1f + 0.5f * (valueNoise(distance / base * 0.22f + 41f, params.seed * 7.31f) - 0.5f)
         val pig = pigment * (0.5f + 0.5f * load) * (1f + landing + slow) * wander
         val water = flow * (0.55f + 0.45f * load)
@@ -1384,16 +1387,16 @@ class StrokeSession(
                         val cw = canvasWetAt(x, y)
                         if (cw <= 0.05f) continue
                         val reach = 1f - (sqrt(d2) - 1f) / (reachOut - 1f)
-                        val f = (reach * (0.35f + 1.1f * valueNoise(x * 0.09f + 7f, y * 0.09f + 3f)) - 0.1f).coerceIn(0f, 1f) * cw
+                        val f = (reach * (0.5f + 1.2f * valueNoise(x * 0.06f + 7f, y * 0.06f + 3f)) - 0.05f).coerceIn(0f, 1f) * cw
                         if (f <= 0f) continue
                         if (waterTile == null) {
                             waterTile = FloatArray(TiledSurface.TILE * TiledSurface.TILE).also { washWater[index] = it }
                             pigTile = FloatArray(TiledSurface.TILE * TiledSurface.TILE).also { washPigment[index] = it }
                         }
-                        val w = f
+                        val w = min(1f, f * 1.6f)
                         if (w > waterTile[i]) waterTile[i] = w
                         val pt = pigTile!!
-                        val pb = pig * f
+                        val pb = pig * sqrt(f)
                         if (pb > pt[i]) pt[i] = pb
                     }
                 }
@@ -1610,6 +1613,7 @@ class StrokeSession(
         reliefPending = null
         lastBleedX = Float.NaN
         lastBleedY = Float.NaN
+        washSpeed = -1f
         totalDirty = null
         if (mixer) mixerState.restore(mixerStart)
 

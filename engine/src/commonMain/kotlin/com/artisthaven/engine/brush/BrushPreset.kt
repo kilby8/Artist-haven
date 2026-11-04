@@ -478,7 +478,7 @@ object BrushLibrary {
             tip = TipShape.ROUND, hardness = 0.6f, spacing = 0.04f,
             streamline = 0.2f, renderMode = RenderMode.WASH, flow = 0.6f, blendMode = BlendMode.MULTIPLY,
             grain = GrainTexture.COLD_PRESS, grainScale = 1.3f, charge = 0.35f,
-            edgeDarken = 0.8f, granulation = 0.9f, pigmentFlow = 0.3f, edgeWobble = 1f,
+            edgeDarken = 0.5f, granulation = 0.75f, pigmentFlow = 0.3f, edgeWobble = 1f,
             pressureSize = 0.4f, pressureOpacity = 0.3f,
         ),
         BrushPreset(
