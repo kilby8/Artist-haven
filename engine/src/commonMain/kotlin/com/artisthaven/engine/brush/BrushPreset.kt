@@ -252,9 +252,9 @@ object BrushLibrary {
             tip = TipShape.BRISTLE, spacing = 0.04f,
             streamline = 0.15f, renderMode = RenderMode.WET, flow = 0.85f,
             dilution = 0f, charge = 0.6f, pull = 0.2f,
-            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.8f, tooth = 0.6f,
-            dryOut = 0.35f, impasto = 0.12f, streakColour = 0.3f,
-            pressureSize = 0.4f, pressureFlow = 0.5f, pressureOpacity = 0.3f, smudgeStrength = 0.8f,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.45f, tooth = 0.35f,
+            dryOut = 0.12f, impasto = 0f, streakColour = 0.08f,
+            pressureSize = 0.55f, pressureFlow = 0.5f, pressureOpacity = 0.3f, smudgeStrength = 0.8f,
         ),
         BrushPreset(
             id = "oil_paint", name = "Oil Paint", category = BrushCategory.PAINTING,
@@ -264,7 +264,7 @@ object BrushLibrary {
             dilution = 0f, charge = 0.75f, pull = 0.45f,
             grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 1f, tooth = 0.8f,
             dryOut = 0.7f, impasto = 0.6f, streakColour = 0.6f, relief = 0.35f,
-            pressureSize = 0.3f, pressureFlow = 0.6f, pressureOpacity = 0.3f, smudgeStrength = 0.85f,
+            pressureSize = 0.5f, pressureFlow = 0.6f, pressureOpacity = 0.3f, smudgeStrength = 0.85f,
         ),
         BrushPreset(
             id = "heavy_paint", name = "Heavy Paint", category = BrushCategory.PAINTING,
@@ -274,7 +274,7 @@ object BrushLibrary {
             dilution = 0f, charge = 0.85f, pull = 0.35f,
             grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.35f, tooth = 0.2f,
             dryOut = 0.3f, streakColour = 0.35f, relief = 1f,
-            pressureSize = 0.3f, pressureFlow = 0.4f, pressureOpacity = 0.2f, smudgeStrength = 0.85f,
+            pressureSize = 0.6f, pressureFlow = 0.4f, pressureOpacity = 0.2f, smudgeStrength = 0.85f,
         ),
         BrushPreset(
             id = "palette_knife", name = "Palette Knife", category = BrushCategory.PAINTING,
@@ -283,7 +283,7 @@ object BrushLibrary {
             tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.03f,
             streamline = 0.3f, renderMode = RenderMode.WET, flow = 1f,
             dilution = 0f, charge = 0.7f, pull = 0.6f, relief = 0.8f,
-            pressureSize = 0.15f, pressureFlow = 0.5f, smudgeStrength = 0.9f,
+            pressureSize = 0.45f, pressureFlow = 0.5f, smudgeStrength = 0.9f,
         ),
         BrushPreset(
             id = "dry_brush", name = "Dry Brush", category = BrushCategory.PAINTING,
@@ -303,7 +303,7 @@ object BrushLibrary {
             dilution = 0f, charge = 0.9f, pull = 0.15f,
             grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.4f, tooth = 0.3f,
             dryOut = 0.2f, streakColour = 0.15f, relief = 0.25f,
-            pressureSize = 0.25f, pressureFlow = 0.5f, pressureOpacity = 0.25f,
+            pressureSize = 0.5f, pressureFlow = 0.5f, pressureOpacity = 0.25f,
         ),
         BrushPreset(
             id = "filbert", name = "Filbert", category = BrushCategory.PAINTING,
@@ -318,7 +318,7 @@ object BrushLibrary {
         BrushPreset(
             id = "oil_glaze", name = "Oil Glaze", category = BrushCategory.PAINTING,
             defaultSize = 70f, maxSize = 400f, defaultOpacity = 0.7f,
-            tip = TipShape.ROUND, hardness = 0.35f, spacing = 0.05f,
+            tip = TipShape.ROUND, hardness = 0.35f, spacing = 0.025f,
             streamline = 0.25f, renderMode = RenderMode.WET, flow = 0.3f,
             dilution = 0.55f, charge = 1f, pull = 0.5f,
             pressureSize = 0.3f, pressureFlow = 0.7f,
@@ -359,7 +359,7 @@ object BrushLibrary {
             tip = TipShape.GAUSSIAN, spacing = 0.05f,
             streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.6f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.2f, pressureFlow = 0.7f, smudgeStrength = 0.7f,
+            pressureSize = 0.65f, pressureFlow = 0.7f, smudgeStrength = 0.7f,
         ),
         BrushPreset(
             id = "bristle_blend", name = "Bristle Blend", category = BrushCategory.BLENDING,
@@ -369,7 +369,7 @@ object BrushLibrary {
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
             grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.4f, tooth = 0.3f,
             streakColour = 0.15f,
-            pressureSize = 0.3f, pressureFlow = 0.6f, smudgeStrength = 0.9f,
+            pressureSize = 0.65f, pressureFlow = 0.6f, smudgeStrength = 0.9f,
         ),
         BrushPreset(
             id = "textured_blend", name = "Textured Blend", category = BrushCategory.BLENDING,
@@ -378,7 +378,7 @@ object BrushLibrary {
             streamline = 0.15f, renderMode = RenderMode.MIXER, flow = 0.8f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
             grain = GrainTexture.LAID, grainScale = 1.3f, grainDepth = 0.85f, tooth = 0.8f,
-            pressureSize = 0.25f, pressureFlow = 0.6f, smudgeStrength = 0.8f,
+            pressureSize = 0.65f, pressureFlow = 0.6f, smudgeStrength = 0.8f,
         ),
         BrushPreset(
             id = "wet_blend", name = "Wet Blend", category = BrushCategory.BLENDING,
@@ -386,7 +386,7 @@ object BrushLibrary {
             tip = TipShape.ROUND, hardness = 0.3f, spacing = 0.04f,
             streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.9f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.3f, pressureFlow = 0.5f, smudgeStrength = 0.94f,
+            pressureSize = 0.65f, pressureFlow = 0.5f, smudgeStrength = 0.97f,
         ),
         BrushPreset(
             id = "finger_blend", name = "Finger", category = BrushCategory.BLENDING,
@@ -394,8 +394,8 @@ object BrushLibrary {
             tip = TipShape.ROUND, hardness = 0.55f, roundness = 0.8f, spacing = 0.04f,
             streamline = 0.2f, renderMode = RenderMode.MIXER, flow = 0.8f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            grain = GrainTexture.PAPER, grainScale = 1f, grainDepth = 0.25f,
-            pressureSize = 0.4f, pressureFlow = 0.6f, smudgeStrength = 0.85f,
+            grain = GrainTexture.PAPER, grainScale = 1f, grainDepth = 0.6f,
+            pressureSize = 0.65f, pressureFlow = 0.6f, smudgeStrength = 0.75f,
         ),
         BrushPreset(
             id = "knife_blend", name = "Knife Blend", category = BrushCategory.BLENDING,
@@ -404,7 +404,7 @@ object BrushLibrary {
             tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.03f,
             streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 1f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.15f, pressureFlow = 0.4f, smudgeStrength = 0.95f,
+            pressureSize = 0.65f, pressureFlow = 0.4f, smudgeStrength = 0.95f,
         ),
         BrushPreset(
             id = "blur_blend", name = "Soften", category = BrushCategory.BLENDING,
@@ -412,7 +412,7 @@ object BrushLibrary {
             tip = TipShape.GAUSSIAN, spacing = 0.05f,
             streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.3f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.2f, pressureFlow = 0.8f, smudgeStrength = 0.35f,
+            pressureSize = 0.65f, pressureFlow = 0.8f, smudgeStrength = 0.12f,
         ),
         // Watercolour
         BrushPreset(
@@ -438,7 +438,7 @@ object BrushLibrary {
             id = "flat_wash", name = "Flat Wash", category = BrushCategory.WATERCOLOR,
             defaultSize = 60f, maxSize = 300f, defaultOpacity = 0.6f,
             tip = TipShape.ROUND, hardness = 0.4f, roundness = 0.3f,
-            tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.04f,
+            tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.02f,
             streamline = 0.3f, renderMode = RenderMode.WASH, flow = 0.5f, blendMode = BlendMode.MULTIPLY,
             grain = GrainTexture.COLD_PRESS, grainScale = 1f, charge = 1.5f,
             edgeDarken = 0.6f, granulation = 0.25f, pigmentFlow = 0.5f, edgeWobble = 0.6f,
@@ -509,8 +509,7 @@ object BrushLibrary {
             id = "oil_pastel", name = "Oil Pastel", category = BrushCategory.ARTISTIC,
             defaultSize = 30f, maxSize = 160f,
             tip = TipShape.CHARCOAL, spacing = 0.05f, rotationJitter = 6f,
-            streamline = 0.1f, renderMode = RenderMode.WET, flow = 1f,
-            dilution = 0f, charge = 0.9f, pull = 0.3f,
+            streamline = 0.1f, flow = 1f,
             grain = GrainTexture.CANVAS, grainScale = 1.1f, grainDepth = 0.7f, tooth = 0.75f,
             pressureSize = 0.25f, pressureFlow = 0.5f, pressureOpacity = 0.3f,
         ),
@@ -527,7 +526,7 @@ object BrushLibrary {
             defaultSize = 22f, maxSize = 150f,
             tip = TipShape.CHARCOAL, spacing = 0.06f, rotationJitter = 10f, lateralJitter = 0.01f,
             streamline = 0.1f, flow = 0.95f,
-            grain = GrainTexture.CHALK, grainScale = 1.2f, grainDepth = 0.85f, tooth = 1f, dust = 0.4f,
+            grain = GrainTexture.CHALK, grainScale = 1.2f, grainDepth = 0.6f, tooth = 0.65f, dust = 0.4f,
             pressureSize = 0.25f, pressureOpacity = 0.35f, tiltSize = 1.4f, tiltOpacity = 0.45f,
         ),
         // Airbrushing

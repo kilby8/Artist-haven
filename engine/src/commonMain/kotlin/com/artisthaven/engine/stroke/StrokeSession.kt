@@ -829,7 +829,9 @@ class StrokeSession(
         val light = if (relief) 0f else (sinA * 0.6f - cosA * 0.8f) * brush.impasto * 1.2f
         // Thick paint: how high it stands, thinner under light pressure, with a blob at the start.
         val reliefScale = brush.relief * radius * 0.16f
-        val body = 0.35f + 0.65f * dabPressure
+        // A loaded brush lays thick paint, and the paint thins out as the brush empties.
+        val reliefLoad = 1f / (1f + distance / (brush.charge.coerceAtLeast(0.05f) * 25f * max(params.size, 4f)))
+        val body = (0.35f + 0.65f * dabPressure) * (0.45f + 0.55f * reliefLoad)
         val startLen = max(params.size, 4f) * 0.7f
         val blob = if (distance < startLen) 0.7f * (1f - distance / startLen) else 0f
         val groove = if (bristly) 0.5f else 0.1f
@@ -865,8 +867,18 @@ class StrokeSession(
             for (y in r.top until r.bottom) {
                 val row = (y and TiledSurface.MASK) shl shift
                 for (x in r.left until r.right) {
-                    val m = maskAt(s, x + 0.5f, y + 0.5f, cx, cy, radius, cosA, sinA, invRound, grainDepth)
+                    var m = maskAt(s, x + 0.5f, y + 0.5f, cx, cy, radius, cosA, sinA, invRound, grainDepth)
                     if (m <= 0f) continue
+                    if (heights != null) {
+                        // Thick paint has a torn, uneven edge, not a clean cut.
+                        val ac = (-(x + 0.5f - cx) * sinD + (y + 0.5f - cy) * cosD) / radius
+                        val a2 = if (ac < 0f) -ac else ac
+                        if (a2 > 0.7f) {
+                            val n = flowNoise.sampleWrapped(x * 0.55f + 19f, y * 0.55f + 47f)
+                            m *= ((0.74f + 0.34f * n - a2) / 0.07f).coerceIn(0f, 1f)
+                            if (m <= 0f) continue
+                        }
+                    }
                     val i = row or (x and TiledSurface.MASK)
                     val d = dest?.get(i) ?: 0
                     var t = m * strength * (if (smudge) 1f else params.opacity)
@@ -875,8 +887,10 @@ class StrokeSession(
                         val ddy = y + 0.5f - cy
                         // Paint pushed aside by the brush piles up in a ridge along each edge.
                         val across = (-ddx * sinD + ddy * cosD) / radius
-                        val q = ((if (across < 0f) -across else across) - 0.86f) / 0.16f
-                        val ridge = if (q > -1f && q < 1f) (1f - q * q) else 0f
+                        val lump0 = lumps[i]
+                        // The ridges wander, swell and shrink along the stroke.
+                        val q = ((if (across < 0f) -across else across) - 0.84f - 0.08f * lump0) / 0.16f
+                        val ridge = if (q > -1f && q < 1f) (1f - q * q) * (0.85f + 1.5f * lump0).coerceAtLeast(0.1f) else 0f
                         // Bristles plough grooves; the paint itself is lumpy, not a ribbon.
                         var cov = 1f
                         if (smooth != null) {
@@ -1022,7 +1036,7 @@ class StrokeSession(
                         val lit = (gx + gy) * 0.45f
                         if (lit != 0f) {
                             out = shadePaint(c, 1f + lit.coerceIn(-0.4f, 0.4f))
-                            val sheen = ((lit - 0.28f) * 1.2f).coerceIn(0f, 0.45f)
+                            val sheen = ((lit - 0.34f) * 1.1f).coerceIn(0f, 0.3f)
                             if (sheen > 0f) {
                                 val a = Pixels.alpha(out)
                                 out = Pixels.pack(
@@ -1400,7 +1414,9 @@ class StrokeSession(
                 out[i] = (broad * 0.8f + n * 0.3f + paper * 0.18f) * wobble
                 // How much pigment the rim gathers changes along the edge.
                 val rv = valueNoise(x * 0.025f + 401f, y * 0.025f + 89f)
-                out[STATIC + i] = brush.edgeDarken * 2f * (0.15f + 2.2f * rv * rv)
+                // Some stretches get a strong dark edge, some almost none.
+                val rq = ((rv - 0.3f) / 0.5f).coerceIn(0f, 1f)
+                out[STATIC + i] = brush.edgeDarken * 2f * (0.05f + 2.6f * rq * rq)
                 var d = 1f
                 if (brush.granulation > 0f) {
                     // Pigment grains clump and settle in the hollows of the paper.
@@ -1512,7 +1528,8 @@ class StrokeSession(
                         around /= 16f
                         // How much pigment the rim gathers changes along the edge.
                         val rim = ((wet - around) * 3.5f).coerceIn(0f, 1f)
-                        density = pig[i] * wet * (1f + rim * st[STATIC + i]) * st[2 * STATIC + i]
+                        // Pigment dropped into wet paper spreads out and dries lighter.
+                        density = pig[i] * wet * (1f + rim * st[STATIC + i]) * st[2 * STATIC + i] * (1f - 0.35f * cb[j])
                     }
                     val a = (density * strokeOpacity).coerceIn(0f, 1f)
                     val ov = orig?.get(i) ?: 0
