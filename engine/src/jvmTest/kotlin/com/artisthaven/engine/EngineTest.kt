@@ -205,6 +205,10 @@ class EngineTest {
         val renders = BrushLibrary.all.map { brush ->
             val doc = Document.blank(260, 120)
             val editor = Editor(doc)
+            // Paint to push around, for the blenders.
+            val under = BrushLibrary.byId("hard_airbrush")
+            draw(editor, TestSupport.line(10f, 40f, 250f, 40f), StrokeParams(under, color = 0xFFE5B53A.toInt(), size = 30f))
+            draw(editor, TestSupport.line(10f, 80f, 250f, 80f), StrokeParams(under, color = 0xFF3A7BE5.toInt(), size = 30f))
             draw(editor, TestSupport.sCurve(20f, 15f, 220f, 90f), StrokeParams(brush, color = 0xFF263238.toInt(), size = 26f, usePressure = true))
             brush.name to snapshot(doc)
         }

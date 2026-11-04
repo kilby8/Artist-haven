@@ -17,7 +17,7 @@ const settings = Object.assign({
   color: 0xFF1F2A44 | 0,
   recent: [],
   palette: DEFAULT_PALETTE,
-  brushes: { brush: 'studio_pen', smudge: 'soft_airbrush', eraser: 'hard_airbrush' },
+  brushes: { brush: 'studio_pen', smudge: 'soft_blend', eraser: 'hard_airbrush' },
   sizes: {},
   opacities: {},
   symmetry: 0,
@@ -28,6 +28,11 @@ const settings = Object.assign({
   rightHand: false,
   stylusSeen: false,
 }, readJson('ah.settings', {}));
+// Version 2 added real blending brushes: move the smudge tool off the old airbrush default.
+if ((settings.version | 0) < 2) {
+  if (settings.brushes.smudge === 'soft_airbrush') settings.brushes.smudge = 'soft_blend';
+  settings.version = 2;
+}
 
 function readJson(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
@@ -624,9 +629,12 @@ function togglePanel(id) {
 
 // Brush library
 let brushCategory = null;
+let brushCategorySlot = null;
 function renderBrushes() {
   const slot = slotFor(tool);
   const active = settings.brushes[slot];
+  // Each tool opens the library on the category of its own brush (smudge opens on Blending).
+  if (slot !== brushCategorySlot) { brushCategory = null; brushCategorySlot = slot; }
   $('#brush-tool-name').textContent = { brush: 'for painting', smudge: 'for smudging', eraser: 'for erasing' }[slot];
   const cats = [];
   for (const b of brushes) if (!cats.some(c => c.id === b.category)) cats.push({ id: b.category, name: b.categoryName });

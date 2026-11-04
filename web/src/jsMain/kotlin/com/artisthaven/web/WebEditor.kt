@@ -355,7 +355,14 @@ class WebEditor private constructor(private val doc: Document) {
             val brush = BrushLibrary.byId(brushId)
             val doc = Document.blank(width, height, paperColor = background)
             val editor = Editor(doc)
-            if (brush.renderMode == RenderMode.WET || brush.renderMode == RenderMode.MIXER) {
+            if (brush.blendOnly) {
+                // Blenders only move paint, so give them two colours to push into each other.
+                val bars = listOf(0.3f to 0xFF8E7DBE.toInt(), 0.5f to 0xFFE0A83A.toInt(), 0.7f to 0xFF4C8BD8.toInt())
+                for ((fx, c) in bars) {
+                    previewStroke(editor, BrushLibrary.byId("hard_airbrush"), c, width * 0.2f,
+                        (0..20).map { i -> InputPoint(width * fx, 6f + (height - 12f) * i / 20f, time = i * 8L) })
+                }
+            } else if (brush.renderMode == RenderMode.WET || brush.renderMode == RenderMode.MIXER) {
                 previewStroke(editor, BrushLibrary.byId("hard_airbrush"), 0xFF8E7DBE.toInt(), height * 0.3f,
                     (0..20).map { i -> InputPoint(width * 0.55f, 10f + (height - 20f) * i / 20f, time = i * 8L) })
             }
