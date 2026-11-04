@@ -1341,7 +1341,7 @@ class StrokeSession(
         val load = 1f / (1f + distance / (brush.charge.coerceAtLeast(0.05f) * 30f * base))
         val landing = if (distance < base) 0.45f * (1f - distance / base) else 0f
         val slow = (1f - speed).let { it * it } * 0.45f
-        val wander = 1f + 0.6f * (valueNoise(distance / base * 0.6f + 41f, params.seed * 7.31f) - 0.5f)
+        val wander = 1f + 0.5f * (valueNoise(distance / base * 0.22f + 41f, params.seed * 7.31f) - 0.5f)
         val pig = pigment * (0.5f + 0.5f * load) * (1f + landing + slow) * wander
         val water = flow * (0.55f + 0.45f * load)
 
@@ -1454,8 +1454,8 @@ class StrokeSession(
                 // How much pigment the rim gathers changes along the edge.
                 val rv = valueNoise(x * 0.025f + 401f, y * 0.025f + 89f)
                 // Some stretches get a strong dark edge, some almost none.
-                val rq = ((rv - 0.5f) / 0.4f).coerceIn(0f, 1f)
-                out[STATIC + i] = brush.edgeDarken * 2f * (0.05f + 2.6f * rq * rq)
+                val rq = ((rv - 0.55f) / 0.35f).coerceIn(0f, 1f)
+                out[STATIC + i] = brush.edgeDarken * 2f * (0.02f + 3f * rq * rq * rq)
                 var d = 1f
                 if (brush.granulation > 0f) {
                     // Pigment grains clump and settle in the hollows of the paper.

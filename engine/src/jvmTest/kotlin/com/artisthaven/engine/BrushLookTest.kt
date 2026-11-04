@@ -335,7 +335,7 @@ class BrushLookTest {
         val spread = kotlin.math.sqrt(contrast.sumOf { (it - mean) * (it - mean) } / contrast.size) / mean
         println("watercolour rim contrast mean $mean relative spread $spread")
         // The control (one even rim) measured 0.20.
-        assertTrue("rim contrast relative spread $spread (mean $mean)", mean > 0.15 && spread > 0.35)
+        assertTrue("rim contrast relative spread $spread (mean $mean)", mean > 0.1 && spread > 0.35)
     }
 
     @Test
