@@ -167,6 +167,22 @@ class WebEditor private constructor(private val doc: Document) {
 
     val isStroking: Boolean get() = editor.isStroking
 
+    // ---- Watercolour water -----------------------------------------------------------------------
+
+    /** True while watercolour is wet or damp: keep calling [tickWater] every frame. */
+    val isWaterActive: Boolean get() = editor.isWaterActive
+
+    /** Lets the water flow for [elapsedMillis]. Returns true if undo/redo availability may have changed. */
+    fun tickWater(elapsedMillis: Double): Boolean {
+        val undoBefore = editor.history.canUndo
+        val rev = editor.revision
+        apply(editor.tickWater(elapsedMillis), all = true)
+        return rev != editor.revision || undoBefore != editor.history.canUndo
+    }
+
+    /** Dries all wet watercolour where it is. */
+    fun dryWater() = apply(editor.dryWater(), all = true)
+
     /** Snaps the stroke in progress to a line, circle or shape. True if it did. */
     fun quickShape(): Boolean {
         val c = editor.quickShape() ?: return false

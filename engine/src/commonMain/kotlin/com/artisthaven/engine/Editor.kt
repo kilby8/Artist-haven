@@ -23,12 +23,16 @@ import com.artisthaven.engine.stroke.InputPoint
 import com.artisthaven.engine.stroke.StrokeParams
 import com.artisthaven.engine.stroke.StrokeSession
 import com.artisthaven.engine.stroke.WetCanvas
+import com.artisthaven.engine.stroke.WaterSim
+import com.artisthaven.engine.brush.RenderMode
+import com.artisthaven.engine.stroke.Tool
 import com.artisthaven.engine.tools.FloodFill
 import com.artisthaven.engine.tools.QuickShape
 import com.artisthaven.engine.tools.Affine
 import com.artisthaven.engine.tools.Resample
 import com.artisthaven.engine.tools.TransformSession
 import com.artisthaven.engine.raster.IRect
+import kotlin.math.min
 
 /**
  * Every change to a document goes through here, so each one is undoable and reports what needs
@@ -57,6 +61,121 @@ class Editor(val doc: Document, val history: History = History()) {
         return WetCanvas(doc.width, doc.height).also { wetCanvases[layer.id] = it }
     }
 
+    // ---- Watercolour water ------------------------------------------------------------------------
+
+    /** Each layer's watercolour water, which keeps flowing after the pen lifts (see [WaterSim]). */
+    private val waterSims = HashMap<String, WaterSim>()
+    /** Pixels the water changed since the last undo step was closed, per layer, as they were. */
+    private val waterOriginals = HashMap<String, HashMap<Int, IntArray?>>()
+    private var waterLabel = "Watercolour"
+    private var waterSnapshot: Pair<WaterSim, WaterSim.Snapshot>? = null
+    private var waterClock = 0.0
+    private var waterFrame = 0
+
+    private fun waterSimFor(layer: Layer): WaterSim {
+        val w = waterSims[layer.id]
+        if (w != null && w.width == doc.width && w.height == doc.height) return w
+        return WaterSim(doc.width, doc.height).also { waterSims[layer.id] = it }
+    }
+
+    /** True while any watercolour is wet or damp, so the app should keep calling [tickWater]. */
+    val isWaterActive: Boolean get() = waterSims.values.any { it.isActive }
+
+    /** Debug summary of each layer's water. */
+    fun waterStats(): String = waterSims.entries.joinToString("; ") { "${it.key}: ${it.value.stats()}" }
+
+    /** True while paint is still moving somewhere. */
+    val isWet: Boolean get() = waterSims.values.any { it.isWet }
+
+    private fun touchFor(layer: Layer): (Int) -> Unit {
+        val map = waterOriginals.getOrPut(layer.id) { HashMap() }
+        val surface = layer.surface
+        return { index -> if (!map.containsKey(index)) map[index] = surface.tile(index)?.copyOf() }
+    }
+
+    /** Makes everything the water changed so far one undo step. */
+    private fun closeWaterStep(): Boolean {
+        if (waterOriginals.isEmpty()) return false
+        val parts = ArrayList<Command>()
+        for ((id, originals) in waterOriginals) {
+            val layer = doc.layer(id) ?: continue
+            PixelCommand.capture(waterLabel, layer, originals)?.let { parts += it }
+        }
+        waterOriginals.clear()
+        waterLabel = "Watercolour"
+        if (parts.isEmpty()) return false
+        history.push(if (parts.size == 1) parts[0] else CompoundCommand(parts[0].label, parts))
+        revision++
+        return true
+    }
+
+    private fun renderWater(layer: Layer, sim: WaterSim, rect: IRect?, force: Boolean = false): IRect? {
+        if (rect == null) return null
+        return sim.render(layer.surface, rect, 1f, layer.alphaLock, force = force, touch = touchFor(layer))
+    }
+
+    /**
+     * Lets the water flow for [elapsedMillis] (call it every frame while [isWaterActive]). Returns
+     * what to redraw. At most [maxSteps] steps are run, so a slow frame doesn't stall the app.
+     */
+    fun tickWater(elapsedMillis: Double, maxSteps: Int = 3): Change {
+        if (waterSims.isEmpty()) return Change.NONE
+        waterClock += elapsedMillis.coerceAtLeast(0.0)
+        var steps = (waterClock / STEP_MILLIS).toInt()
+        waterClock -= steps * STEP_MILLIS
+        if (steps > 0) waterFrame++
+        if (steps > maxSteps) {
+            steps = maxSteps
+            waterClock = 0.0
+        }
+        var dirty: IRect? = null
+        for ((id, sim) in waterSims) {
+            val layer = doc.layer(id) ?: continue
+            if (!sim.isActive) continue
+            repeat(steps) { sim.step() }
+            // Where the brush is goes on screen at once; the slower creep of the water every
+            // other frame (every third while painting, to keep the pen quick).
+            val flowNow = !sim.isWet || waterFrame % (if (stroke != null) 3 else 2) == 0
+            dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.takePending(withFlow = flowNow)))
+            if (!sim.isWet && stroke == null) {
+                // One last full redraw, so nothing skipped along the way is left behind.
+                dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.paintedRect(), force = true))
+                sim.bake()
+            }
+        }
+        if (stroke == null && !isWet) closeWaterStep()
+        return Change(dirty, false)
+    }
+
+    /** Runs the water for [millis] at full speed (tests, and drying in one go). */
+    fun advanceWater(millis: Double): Change {
+        var c = Change.NONE
+        var left = millis
+        while (left > 0.0 && isWaterActive) {
+            c = c.merge(tickWater(min(left, STEP_MILLIS * 8), maxSteps = 8))
+            left -= STEP_MILLIS * 8
+        }
+        return c
+    }
+
+    /** Dries all watercolour where it is now (the Dry button). */
+    fun dryWater(): Change {
+        var dirty: IRect? = null
+        for ((id, sim) in waterSims) {
+            val layer = doc.layer(id) ?: continue
+            dirty = IRect.unionOf(dirty, sim.freeze(layer.surface, 1f, layer.alphaLock, touchFor(layer)))
+        }
+        closeWaterStep()
+        return Change(dirty, false)
+    }
+
+    /** Before something else edits [layer]'s pixels: its water dries where it is. */
+    private fun dryLayerWater(layer: Layer): IRect? {
+        val sim = waterSims[layer.id] ?: return null
+        if (!sim.isActive) return null
+        return sim.freeze(layer.surface, 1f, layer.alphaLock, touchFor(layer))
+    }
+
     val isStroking: Boolean get() = stroke != null
     val isTransforming: Boolean get() = transform != null
 
@@ -73,25 +192,70 @@ class Editor(val doc: Document, val history: History = History()) {
         if (transform != null) return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         if (!layer.visible) return Change.NONE
-        val s = StrokeSession(doc, layer, params.copy(seed = seed++), mixerState, wetCanvasFor(layer))
+        val flowing = params.tool == Tool.BRUSH && params.brush.renderMode == RenderMode.WASH &&
+            !params.brush.blendOnly && !doc.paintsMask(layer)
+        var dirty: IRect? = null
+        val sim = if (flowing) {
+            closeWaterStep()
+            waterLabel = params.brush.name
+            waterSimFor(layer).also {
+                it.configure(params.brush.pigmentFlow, params.brush.edgeDarken, params.brush.granulation, doc.selection)
+                waterSnapshot = it to it.snapshot()
+            }
+        } else {
+            // Anything else on a wet layer dries it first, so the water can't paint over it.
+            dirty = dryLayerWater(layer)
+            closeWaterStep()
+            waterSnapshot = null
+            null
+        }
+        lastPointTime = first.time
+        val s = StrokeSession(doc, layer, params.copy(seed = seed++), mixerState, wetCanvasFor(layer), sim)
         stroke = s
-        return Change(s.add(first), false)
+        dirty = IRect.unionOf(dirty, s.add(first))
+        if (sim != null) dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.takePending(withFlow = false)))
+        return Change(dirty, false)
     }
 
-    fun strokeTo(point: InputPoint): Change = Change(stroke?.add(point), false)
+    private var lastPointTime = 0L
+
+    fun strokeTo(point: InputPoint): Change {
+        val s = stroke ?: return Change.NONE
+        var dirty = s.add(point)
+        if (waterSnapshot != null) {
+            // The water flows while the stroke is painted, in step with the pen.
+            val dt = (point.time - lastPointTime).coerceIn(0L, 100L)
+            dirty = IRect.unionOf(dirty, tickWater(dt.toDouble()).dirty)
+        }
+        lastPointTime = point.time
+        return Change(dirty, false)
+    }
 
     fun endStroke(): Change {
         val s = stroke ?: return Change.NONE
         stroke = null
         val result = s.finish()
         result.command?.let { history.push(it) }
-        return changed(Change(result.dirty, false))
+        var dirty = result.dirty
+        waterSnapshot?.let { (sim, _) ->
+            doc.activeLayer?.let { dirty = IRect.unionOf(dirty, renderWater(it, sim, sim.takePending(withFlow = false))) }
+        }
+        waterSnapshot = null
+        return changed(Change(dirty, false))
     }
 
     fun cancelStroke(): Change {
         val s = stroke ?: return Change.NONE
         stroke = null
-        return Change(s.cancel(), false)
+        var dirty = s.cancel()
+        waterSnapshot?.let { (sim, snap) ->
+            sim.takePending()
+            val layer = doc.activeLayer
+            val r = sim.restore(snap)
+            if (layer != null) dirty = IRect.unionOf(dirty, renderWater(layer, sim, r, force = true))
+        }
+        waterSnapshot = null
+        return Change(dirty, false)
     }
 
     /** Snaps the stroke in progress to a line, ellipse or rectangle. Returns null if no shape fits. */
@@ -110,7 +274,7 @@ class Editor(val doc: Document, val history: History = History()) {
      */
     fun beginTransform(): IRect? {
         cancelStroke()
-        settle()
+        settlePixels()
         val layer = doc.activeLayer ?: return null
         if (!layer.visible || doc.paintSurface(layer).isBlank()) return null
         val t = TransformSession(layer, doc.selection, doc.paintsMask(layer))
@@ -159,7 +323,18 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Anything else that edits the document first finishes a transform in progress. */
     private fun settle() {
+        // Keep undo in order: what the water did so far comes before this edit.
+        closeWaterStep()
         if (transform != null) settled = settled.merge(commitTransform())
+    }
+
+    /** Edits that change pixels (fill, clear, merge, transform...) dry the water first. */
+    private fun settlePixels() {
+        if (waterSims.values.any { it.isActive }) {
+            val d = dryWater()
+            if (d.dirty != null) settled = settled.merge(d)
+        }
+        settle()
     }
 
     /** Redraw needed by a transform that another edit finished implicitly; resets after reading. */
@@ -207,7 +382,7 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Erases the selected pixels on the active layer. */
     fun clearSelected(): Change {
-        settle()
+        settlePixels()
         val sel = doc.selection ?: return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         val target = doc.paintSurface(layer)
@@ -232,7 +407,7 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Fills the selection with a straight colour on the active layer. */
     fun fillSelection(color: Int): Change {
-        settle()
+        settlePixels()
         val sel = doc.selection ?: return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         val rect = sel.bounds() ?: return Change.NONE
@@ -260,7 +435,7 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Copies (or cuts, with [cut]) the selected pixels of the active layer onto a new layer above. */
     fun selectionToNewLayer(cut: Boolean): Change {
-        settle()
+        settlePixels()
         val sel = doc.selection ?: return Change.NONE
         val src = doc.activeLayer ?: return Change.NONE
         val layer = doc.createLayer(src.name + if (cut) " cut" else " copy")
@@ -306,7 +481,7 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Gives the active layer an empty mask (everything shows) and starts editing it. */
     fun addMask(id: String): Change {
-        settle()
+        settlePixels()
         val layer = doc.layer(id) ?: return Change.NONE
         if (layer.mask != null) return setEditingMask(true)
         doc.activeLayerId = id
@@ -314,7 +489,7 @@ class Editor(val doc: Document, val history: History = History()) {
     }
 
     fun deleteMask(id: String): Change {
-        settle()
+        settlePixels()
         val layer = doc.layer(id) ?: return Change.NONE
         val mask = layer.mask ?: return Change.NONE
         return changed(history.execute(doc, MaskCommand(id, mask, null, doc.editingMask, false, "Delete mask")))
@@ -322,7 +497,7 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Bakes the mask into the layer's pixels and removes it. */
     fun applyMask(id: String): Change {
-        settle()
+        settlePixels()
         val layer = doc.layer(id) ?: return Change.NONE
         val mask = layer.mask ?: return Change.NONE
         val before = HashMap<Int, IntArray?>()
@@ -353,7 +528,7 @@ class Editor(val doc: Document, val history: History = History()) {
     // ---- Fill and colour ----------------------------------------------------------------------
 
     fun fill(x: Int, y: Int, color: Int, tolerance: Float, allLayers: Boolean): Change {
-        settle()
+        settlePixels()
         val layer = doc.activeLayer ?: return Change.NONE
         val (rect, before) = FloodFill.fill(doc, layer, x, y, color, tolerance, allLayers) ?: return Change.NONE
         val cmd = PixelCommand.capture("Fill", layer, before, doc.paintsMask(layer)) ?: return Change.NONE
@@ -395,14 +570,14 @@ class Editor(val doc: Document, val history: History = History()) {
     }
 
     fun duplicateLayer(id: String): Change {
-        settle()
+        settlePixels()
         val src = doc.layer(id) ?: return Change.NONE
         val copy = src.duplicate(doc.newLayerId(), src.name + " copy")
         return changed(history.execute(doc, AddLayerCommand(doc.indexOf(id) + 1, copy, doc.activeLayerId)))
     }
 
     fun deleteLayer(id: String): Change {
-        settle()
+        settlePixels()
         if (doc.layers.size <= 1) return clearLayer(id)
         val index = doc.indexOf(id)
         if (index < 0) return Change.NONE
@@ -450,7 +625,7 @@ class Editor(val doc: Document, val history: History = History()) {
     }
 
     fun clearLayer(id: String): Change {
-        settle()
+        settlePixels()
         val layer = doc.layer(id) ?: return Change.NONE
         val target = doc.paintSurface(layer)
         val before = HashMap<Int, IntArray?>()
@@ -465,7 +640,7 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Merges a layer into the one below it, baking in opacity and blend mode. */
     fun mergeDown(id: String): Change {
-        settle()
+        settlePixels()
         val index = doc.indexOf(id)
         if (index <= 0) return Change.NONE
         val upper = doc.layers[index]
@@ -512,6 +687,9 @@ class Editor(val doc: Document, val history: History = History()) {
         cancelStroke()
         if (transform != null) return cancelTransform()
         wetCanvases.clear()
+        // Undo while paint is still wet takes back that stroke and its water.
+        closeWaterStep()
+        waterSims.values.forEach { it.clear() }
         return changed(history.undo(doc))
     }
 
@@ -519,6 +697,13 @@ class Editor(val doc: Document, val history: History = History()) {
         cancelStroke()
         if (transform != null) return Change.NONE
         wetCanvases.clear()
+        closeWaterStep()
+        waterSims.values.forEach { it.clear() }
         return changed(history.redo(doc))
+    }
+
+    companion object {
+        /** One step of the water simulation, in milliseconds. */
+        const val STEP_MILLIS = 1000.0 / 60.0
     }
 }

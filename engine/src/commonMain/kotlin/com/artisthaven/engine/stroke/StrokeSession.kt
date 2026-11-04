@@ -44,6 +44,8 @@ class StrokeSession(
     mixerState: MixerState? = null,
     /** Where earlier watercolour on this layer is still wet, for wet-in-wet. */
     private val wetCanvas: WetCanvas? = null,
+    /** The layer's water, if watercolour should flow (see [WaterSim]). */
+    private val waterSim: WaterSim? = null,
 ) {
     private val brush: BrushPreset =
         if (params.paintLoad >= 0f) params.brush.withPaintLoad(params.paintLoad) else params.brush
@@ -57,6 +59,8 @@ class StrokeSession(
         tool == Tool.ERASER || (tool == Tool.BRUSH && brush.renderMode == RenderMode.GLAZE)
     private val wash: Boolean = tool == Tool.BRUSH && brush.renderMode == RenderMode.WASH
     private val mixer: Boolean = tool == Tool.BRUSH && brush.renderMode == RenderMode.MIXER
+    /** Watercolour that flows: dabs go into [waterSim], which paints the layer. */
+    private val flowing: Boolean = wash && !onMask && waterSim != null
     /** Thick paint: painted into [reliefBase] and lit from a height map by [shadeRelief]. */
     private val relief: Boolean = tool == Tool.BRUSH && brush.renderMode == RenderMode.WET && brush.relief > 0f && !onMask
     private val mixerState: MixerState = mixerState ?: MixerState()
@@ -125,11 +129,11 @@ class StrokeSession(
         // The end taper needs the stroke's length, so the stroke is repainted once it is known.
         // With a pen, lifting off already tapers the end through pressure, and repainting a wet,
         // watercolour or mixing stroke is slow, so that is only done for mouse and finger strokes.
-        if (brush.taperEnd > 0f && raw.size > 1 && (glaze || !params.usePressure)) {
+        if (brush.taperEnd > 0f && raw.size > 1 && !flowing && (glaze || !params.usePressure)) {
             dirty = IRect.unionOf(dirty, replay(raw, taperAware = true))
         }
         finished = true
-        if (wash && !onMask) wetCanvas?.deposit(washWater, lastTime)
+        if (wash && !onMask && !flowing) wetCanvas?.deposit(washWater, lastTime)
         if (mixer) mixerState.endStroke(params.color, brush.mixerClean)
         val command = PixelCommand.capture(label(), layer, originals, onMask)
         return StrokeResult(IRect.unionOf(dirty, totalDirty), command)
@@ -488,6 +492,7 @@ class StrokeSession(
         // pushes paint well into the weave whatever the pressure.
         reach = if (bristly) 0.85f + 0.3f * pr else (0.4f + 0.7f * pr) * (1f - 0.45f * tn * brush.tiltOpacity)
         return when {
+            flowing -> simDab(cx, cy, radius, angle, alpha, dabFlow, distance)
             wash -> washDab(cx, cy, radius, angle, alpha, dabFlow, speed, distance)
             mixer -> mixerDab(s, cx, cy, radius, angle, dabFlow * opacity, grainDepth)
             glaze -> {
@@ -1318,6 +1323,26 @@ class StrokeSession(
     private var canvasDrying = FloatArray(0)
 
     private fun canvasWetAt(x: Int, y: Int): Float = if (canvasWet) wetCanvas!!.at(x, y, canvasDrying) else 0f
+
+    // Absorbance of the brush colour, for the water simulation.
+    private val absR = -kotlin.math.ln(max(cr, 0.02f))
+    private val absG = -kotlin.math.ln(max(cg, 0.02f))
+    private val absB = -kotlin.math.ln(max(cb, 0.02f))
+
+    /** A watercolour dab into the layer's water; the water paints the pixels as it moves. */
+    private fun simDab(cx: Float, cy: Float, radius: Float, angle: Float, pigment: Float, flow: Float, distance: Float): IRect? {
+        val sim = waterSim ?: return null
+        val base = max(params.size, 2f)
+        val load = 1f / (1f + distance / (brush.charge.coerceAtLeast(0.05f) * 30f * base))
+        val landing = if (distance < base) 0.35f * (1f - distance / base) else 0f
+        // Less paint on the brush (the Paint slider) and the stroke runs out sooner.
+        val fade = if (brush.paintFade <= 0f) 1f else max(0f, 1f - brush.paintFade * distance / (base * 25f))
+        val pig = pigment * (0.55f + 0.45f * load) * (1f + landing) * fade
+        val wet = brush.pigmentFlow.coerceIn(0f, 1f)
+        val level = 0.2f + 0.6f * wet * (0.5f + 0.5f * load) + flow * 0.15f
+        sim.dab(cx, cy, max(radius, 1.5f), angle, brush.roundness, tip, level, pig, absR, absG, absB)
+        return null
+    }
 
     private fun washDab(
         cx: Float, cy: Float, radius: Float, angle: Float, pigment: Float, flow: Float,

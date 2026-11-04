@@ -37,6 +37,36 @@ function flush() {
   if (d[4] === 1) sendState();
 }
 
+// ---- Watercolour keeps flowing after the pen lifts -------------------------------------------
+
+let waterTimer = 0;
+let waterLast = 0;
+
+function startWater() {
+  if (waterTimer || !ed || !ed.isWaterActive) return;
+  waterLast = performance.now();
+  waterTimer = setTimeout(waterTick, 16);
+}
+
+function waterTick() {
+  waterTimer = 0;
+  if (!ed) return;
+  const now = performance.now();
+  // While painting, the stroke moves the water in step with the pen.
+  if (!ed.isStroking) {
+    const historyChanged = ed.tickWater(Math.min(now - waterLast, 100));
+    queueFrame();
+    if (historyChanged) { sendState(); scheduleSave(); }
+  }
+  waterLast = now;
+  if (ed.isWaterActive) waterTimer = setTimeout(waterTick, 16);
+}
+
+function stopWater() {
+  clearTimeout(waterTimer);
+  waterTimer = 0;
+}
+
 function queueFrame() {
   if (frameQueued) return;
   frameQueued = true;
@@ -152,6 +182,8 @@ async function openProject(id) {
 async function closeProject() {
   if (!ed) return;
   if (ed.isStroking) ed.endStroke();
+  stopWater();
+  if (ed.isWaterActive) ed.dryWater();
   await saveNow();
   ed = null;
   projectId = null;
@@ -204,6 +236,7 @@ const handlers = {
       p.streamline, p.paintLoad ?? -1, q[0], q[1], q[2], q[3], q[4], q[5]);
     if (!ok && !ed.isStroking) post({ t: 'toast', message: 'This layer is hidden. Show it to paint on it.' });
     queueFrame();
+    startWater();
   },
   move(m) {
     if (!ed || !ed.isStroking) return;
@@ -211,14 +244,15 @@ const handlers = {
     for (let i = 0; i < a.length; i += 6) ed.strokeTo(a[i], a[i + 1], a[i + 2], a[i + 3], a[i + 4], a[i + 5]);
     queueFrame();
   },
-  end() { if (ed && ed.isStroking) { ed.endStroke(); sendState(); changed(); } },
+  end() { if (ed && ed.isStroking) { ed.endStroke(); sendState(); changed(); startWater(); } },
+  dryWater() { if (ed) { ed.dryWater(); sendState(); changed(); } },
   cancel() { if (ed && ed.isStroking) { ed.cancelStroke(); queueFrame(); } },
   quickShape() { if (ed && ed.isStroking && ed.quickShape()) { post({ t: 'snapped' }); queueFrame(); } },
 
   fill(m) { ed.fill(m.x, m.y, m.color | 0, m.tolerance, m.allLayers); sendState(); changed(); },
   sample(m) { post({ t: 'sampled', color: ed.sampleColor(m.x, m.y), final: m.final, id: m.id }); },
-  undo() { ed.undo(); sendState(); changed(); },
-  redo() { ed.redo(); sendState(); changed(); },
+  undo() { ed.undo(); sendState(); changed(); startWater(); },
+  redo() { ed.redo(); sendState(); changed(); startWater(); },
   paper(m) { ed.setPaper(m.color | 0, m.visible); sendState(); changed(); },
 
   layer(m) {
