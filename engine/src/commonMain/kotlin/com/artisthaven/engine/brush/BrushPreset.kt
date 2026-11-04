@@ -154,7 +154,7 @@ enum class BrushCategory(val displayName: String) {
 /** The built-in brush set. Each brush is tuned to look clearly different from the others. */
 object BrushLibrary {
     /** Brushes the user made in the Brush Studio; the app loads and saves them. */
-    @Volatile var custom: List<BrushPreset> = emptyList()
+    @kotlin.concurrent.Volatile var custom: List<BrushPreset> = emptyList()
 
     val all: List<BrushPreset> get() = custom + builtIn
 

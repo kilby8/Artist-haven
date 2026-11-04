@@ -38,7 +38,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build, lint and test
-        run: ./gradlew --no-daemon --continue :engine:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: ./gradlew --no-daemon --continue :engine:jvmTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+
+      - name: Build the web app
+        run: ./gradlew -p webbuild --no-daemon :web:assembleSite
 
       - name: Upload debug APK
         if: always()

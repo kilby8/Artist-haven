@@ -534,7 +534,9 @@ class StrokeSession(
 
     /** True while drawing dust specks, which use a plain round tip. */
     private var roundDab = false
-    private val roundTip: Mask by lazy { Textures.tip(TipShape.ROUND, 0.3f) }
+    // Cached by hand: `by lazy` is slow in hot loops on Kotlin/JS (the web app).
+    private var roundTipCache: Mask? = null
+    private val roundTip: Mask get() = roundTipCache ?: Textures.tip(TipShape.ROUND, 0.3f).also { roundTipCache = it }
 
     /**
      * What a wet brush picks up: mostly the paint that was there before this stroke, plus a little
@@ -977,9 +979,21 @@ class StrokeSession(
     private val washWater = arrayOfNulls<FloatArray>(surface.tilesX * surface.tilesY)
     private val washPigment = arrayOfNulls<FloatArray>(surface.tilesX * surface.tilesY)
     private var washPending: IRect? = null
-    private val flowNoise: Mask by lazy { Textures.grain(GrainTexture.PAPER)!! }
-    private val washPaper: Mask? by lazy { grain ?: Textures.grain(GrainTexture.COLD_PRESS) }
-    private val granules: Mask by lazy { Textures.grain(GrainTexture.DRAWING)!! }
+    // Cached by hand: `by lazy` is slow in hot loops on Kotlin/JS (the web app).
+    private var flowNoiseCache: Mask? = null
+    private val flowNoise: Mask get() = flowNoiseCache ?: Textures.grain(GrainTexture.PAPER)!!.also { flowNoiseCache = it }
+    private var washPaperCache: Mask? = null
+    private var washPaperLoaded = false
+    private val washPaper: Mask?
+        get() {
+            if (!washPaperLoaded) {
+                washPaperCache = grain ?: Textures.grain(GrainTexture.COLD_PRESS)
+                washPaperLoaded = true
+            }
+            return washPaperCache
+        }
+    private var granulesCache: Mask? = null
+    private val granules: Mask get() = granulesCache ?: Textures.grain(GrainTexture.DRAWING)!!.also { granulesCache = it }
 
     /** How far, in pixels, pigment travels to the edge of the wash. */
     private val rimWidth: Float = (params.size * 0.1f).coerceIn(2f, 10f)

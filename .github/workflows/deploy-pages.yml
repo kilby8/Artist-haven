@@ -25,13 +25,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The web app (engine compiled to JavaScript plus the UI in web/site), served at /app/.
+      - name: Build the web app
+        run: ./gradlew -p webbuild --no-daemon :web:assembleSite
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp index.html .nojekyll _site/
+          cp -r docs _site/docs
+          cp -r web/build/site _site/app
+          # Lets the service worker cache a new version on every deploy.
+          sed -i "s/artist-haven-v1/artist-haven-${GITHUB_SHA::7}/" _site/app/sw.js
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
 
       - name: Deploy to GitHub Pages
         id: deployment
