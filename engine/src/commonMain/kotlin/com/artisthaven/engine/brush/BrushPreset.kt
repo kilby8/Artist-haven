@@ -140,6 +140,8 @@ data class BrushPreset(
 
     /** Moves paint around without adding colour, with the brush too: it works like the Smudge tool. */
     val blendOnly: Boolean = false,
+    /** Smudge by blurring in place instead of dragging colour along. */
+    val soften: Boolean = false,
 
     /** Strength when this brush is used by the Smudge tool, 0..1. */
     val smudgeStrength: Float = 0.75f,
@@ -376,7 +378,7 @@ object BrushLibrary {
             tip = TipShape.ROUND, hardness = 0.25f, spacing = 0.05f,
             streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.6f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.65f, pressureFlow = 0.7f, smudgeStrength = 0.82f,
+            pressureSize = 0.65f, pressureFlow = 0.7f, smudgeStrength = 0.6f,
         ),
         BrushPreset(
             id = "bristle_blend", name = "Bristle Blend", category = BrushCategory.BLENDING,
@@ -403,12 +405,12 @@ object BrushLibrary {
             tip = TipShape.ROUND, hardness = 0.3f, spacing = 0.04f,
             streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.9f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.65f, pressureFlow = 0.5f, smudgeStrength = 0.9f,
+            pressureSize = 0.65f, pressureFlow = 0.5f, smudgeStrength = 0.88f,
         ),
         BrushPreset(
             id = "finger_blend", name = "Finger", category = BrushCategory.BLENDING,
             defaultSize = 40f, maxSize = 250f,
-            tip = TipShape.ROUND, hardness = 0.55f, roundness = 0.8f, spacing = 0.04f,
+            tip = TipShape.ROUND, hardness = 0.85f, roundness = 0.55f, tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.04f,
             streamline = 0.2f, renderMode = RenderMode.MIXER, flow = 0.8f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
             grain = GrainTexture.CANVAS, grainScale = 0.8f, grainDepth = 0.85f, tooth = 0.5f,
@@ -427,9 +429,9 @@ object BrushLibrary {
             id = "blur_blend", name = "Soften", category = BrushCategory.BLENDING,
             defaultSize = 120f, maxSize = 600f,
             tip = TipShape.GAUSSIAN, spacing = 0.05f,
-            streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 1f,
+            streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.8f,
             mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
-            pressureSize = 0.65f, pressureFlow = 0.3f, smudgeStrength = 0.12f,
+            pressureSize = 0.65f, pressureFlow = 0.3f, smudgeStrength = 0.5f, soften = true,
         ),
         // Watercolour
         BrushPreset(
