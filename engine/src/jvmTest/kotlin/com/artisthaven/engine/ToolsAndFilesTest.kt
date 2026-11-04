@@ -163,13 +163,14 @@ class ToolsAndFilesTest {
                 BrushCategory.SKETCHING -> 0xFF37474F.toInt()
                 BrushCategory.INKING -> 0xFF111111.toInt()
                 BrushCategory.PAINTING -> 0xFFC62828.toInt()
+                BrushCategory.BLENDING -> 0xFF8D6E63.toInt()
                 BrushCategory.WATERCOLOR -> 0xFF1565C0.toInt()
                 BrushCategory.ARTISTIC -> 0xFF6A1B9A.toInt()
                 BrushCategory.AIRBRUSHING -> 0xFFEF6C00.toInt()
                 BrushCategory.TEXTURES -> 0xFF2E7D32.toInt()
                 BrushCategory.MINE -> 0xFF00838F.toInt()
             }
-            if (brush.category == BrushCategory.PAINTING || brush.id == "watercolor_round") {
+            if (brush.category == BrushCategory.PAINTING || brush.category == BrushCategory.BLENDING || brush.id == "watercolor_round") {
                 // Wet brushes need something to mix with.
                 draw(editor, TestSupport.line(x + 120f, y + 20f, x + 120f, y + 80f), StrokeParams(BrushLibrary.byId("hard_airbrush"), color = 0xFFFDD835.toInt(), size = 40f))
             }

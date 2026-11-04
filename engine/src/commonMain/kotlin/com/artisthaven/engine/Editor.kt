@@ -22,6 +22,7 @@ import com.artisthaven.engine.raster.Pixels
 import com.artisthaven.engine.stroke.InputPoint
 import com.artisthaven.engine.stroke.StrokeParams
 import com.artisthaven.engine.stroke.StrokeSession
+import com.artisthaven.engine.stroke.WetCanvas
 import com.artisthaven.engine.tools.FloodFill
 import com.artisthaven.engine.tools.QuickShape
 import com.artisthaven.engine.tools.Affine
@@ -47,6 +48,15 @@ class Editor(val doc: Document, val history: History = History()) {
     /** Paint on the Mixer Brush, kept between strokes like a real brush. */
     val mixerState = com.artisthaven.engine.stroke.MixerState()
 
+    /** Where recent watercolour is still wet, per layer, for wet-in-wet. */
+    private val wetCanvases = HashMap<String, WetCanvas>()
+
+    private fun wetCanvasFor(layer: Layer): WetCanvas {
+        val w = wetCanvases[layer.id]
+        if (w != null && w.width == doc.width && w.height == doc.height) return w
+        return WetCanvas(doc.width, doc.height).also { wetCanvases[layer.id] = it }
+    }
+
     val isStroking: Boolean get() = stroke != null
     val isTransforming: Boolean get() = transform != null
 
@@ -63,7 +73,7 @@ class Editor(val doc: Document, val history: History = History()) {
         if (transform != null) return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         if (!layer.visible) return Change.NONE
-        val s = StrokeSession(doc, layer, params.copy(seed = seed++), mixerState)
+        val s = StrokeSession(doc, layer, params.copy(seed = seed++), mixerState, wetCanvasFor(layer))
         stroke = s
         return Change(s.add(first), false)
     }
@@ -501,12 +511,14 @@ class Editor(val doc: Document, val history: History = History()) {
     fun undo(): Change {
         cancelStroke()
         if (transform != null) return cancelTransform()
+        wetCanvases.clear()
         return changed(history.undo(doc))
     }
 
     fun redo(): Change {
         cancelStroke()
         if (transform != null) return Change.NONE
+        wetCanvases.clear()
         return changed(history.redo(doc))
     }
 }

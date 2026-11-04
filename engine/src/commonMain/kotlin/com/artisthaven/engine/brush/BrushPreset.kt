@@ -112,6 +112,11 @@ data class BrushPreset(
     val impasto: Float = 0f,
     /** 0..1. How much the paint colour varies from bristle to bristle. */
     val streakColour: Float = 0f,
+    /**
+     * 0..1. Thick paint that stands up from the canvas (WET mode): bristle grooves, ridges pushed
+     * up along the edges of the stroke and a blob where it starts, lit from the top left.
+     */
+    val relief: Float = 0f,
 
     // Watercolour (WASH mode only).
     /** 0..1. Pigment pooling at the edge of the wash as it dries. */
@@ -133,6 +138,11 @@ data class BrushPreset(
     val speedSize: Float = 0f,
     val speedOpacity: Float = 0f,
 
+    /** Moves paint around without adding colour, with the brush too: it works like the Smudge tool. */
+    val blendOnly: Boolean = false,
+    /** Smudge by blurring in place instead of dragging colour along. */
+    val soften: Boolean = false,
+
     /** Strength when this brush is used by the Smudge tool, 0..1. */
     val smudgeStrength: Float = 0.75f,
 
@@ -145,6 +155,7 @@ enum class BrushCategory(val displayName: String) {
     SKETCHING("Sketching"),
     INKING("Inking"),
     PAINTING("Painting"),
+    BLENDING("Blending"),
     WATERCOLOR("Watercolour"),
     ARTISTIC("Artistic"),
     AIRBRUSHING("Airbrushing"),
@@ -178,6 +189,14 @@ object BrushLibrary {
             pressureSize = 0.25f, pressureOpacity = 0.3f, pressureGamma = 1.1f,
             tiltSize = 2.2f, tiltOpacity = 0.6f,
         ),
+        BrushPreset(
+            id = "mechanical_pencil", name = "Mechanical Pencil", category = BrushCategory.SKETCHING,
+            defaultSize = 3f, maxSize = 12f, defaultOpacity = 0.85f,
+            tip = TipShape.PENCIL, hardness = 0.95f, spacing = 0.1f,
+            streamline = 0.2f, taperStart = 0.5f, taperEnd = 0.5f, taperMinSize = 0.7f,
+            grain = GrainTexture.DRAWING, grainScale = 0.8f, grainDepth = 0.7f, tooth = 0.8f,
+            pressureSize = 0.1f, pressureOpacity = 0.55f, pressureGamma = 1.1f,
+        ),
         // Inking
         BrushPreset(
             id = "studio_pen", name = "Studio Pen", category = BrushCategory.INKING,
@@ -207,6 +226,19 @@ object BrushLibrary {
             tipAngle = TipAngle.FIXED, angleDegrees = 45f, spacing = 0.03f,
             streamline = 0.4f, pressureSize = 0.5f,
         ),
+        BrushPreset(
+            id = "brush_pen", name = "Brush Pen", category = BrushCategory.INKING,
+            defaultSize = 16f, maxSize = 120f,
+            tip = TipShape.ROUND, hardness = 0.95f, roundness = 0.85f, spacing = 0.03f,
+            streamline = 0.5f, taperStart = 3f, taperEnd = 5f, taperMinSize = 0.02f,
+            pressureSize = 1f, pressureGamma = 1.6f, speedSize = 0.2f,
+        ),
+        BrushPreset(
+            id = "fineliner", name = "Fineliner", category = BrushCategory.INKING,
+            defaultSize = 3f, maxSize = 30f,
+            tip = TipShape.ROUND, hardness = 0.97f, spacing = 0.04f,
+            streamline = 0.5f, pressureSize = 0.1f,
+        ),
         // Painting
         BrushPreset(
             id = "round_brush", name = "Round Brush", category = BrushCategory.PAINTING,
@@ -222,9 +254,9 @@ object BrushLibrary {
             tip = TipShape.BRISTLE, spacing = 0.04f,
             streamline = 0.15f, renderMode = RenderMode.WET, flow = 0.85f,
             dilution = 0f, charge = 0.6f, pull = 0.2f,
-            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.8f, tooth = 0.6f,
-            dryOut = 0.35f, impasto = 0.12f, streakColour = 0.3f,
-            pressureSize = 0.4f, pressureFlow = 0.5f, smudgeStrength = 0.8f,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.45f, tooth = 0.35f,
+            dryOut = 0.12f, impasto = 0f, streakColour = 0.08f,
+            pressureSize = 0.55f, pressureFlow = 0.5f, pressureOpacity = 0.3f, smudgeStrength = 0.8f,
         ),
         BrushPreset(
             id = "oil_paint", name = "Oil Paint", category = BrushCategory.PAINTING,
@@ -233,8 +265,82 @@ object BrushLibrary {
             streamline = 0.1f, renderMode = RenderMode.WET, flow = 0.9f,
             dilution = 0f, charge = 0.75f, pull = 0.45f,
             grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 1f, tooth = 0.8f,
-            dryOut = 0.7f, impasto = 0.6f, streakColour = 0.6f,
-            pressureSize = 0.3f, pressureFlow = 0.6f, smudgeStrength = 0.85f,
+            dryOut = 0.7f, impasto = 0.6f, streakColour = 0.6f, relief = 0.35f,
+            pressureSize = 0.75f, pressureGamma = 1.2f, pressureFlow = 0.6f, pressureOpacity = 0.3f, smudgeStrength = 0.85f,
+        ),
+        BrushPreset(
+            id = "heavy_paint", name = "Heavy Paint", category = BrushCategory.PAINTING,
+            defaultSize = 55f, maxSize = 350f,
+            tip = TipShape.BRISTLE, spacing = 0.03f, tipAngle = TipAngle.FOLLOW_STROKE,
+            streamline = 0.15f, renderMode = RenderMode.WET, flow = 1f,
+            dilution = 0f, charge = 0.85f, pull = 0.35f,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.35f, tooth = 0.2f,
+            dryOut = 0.3f, streakColour = 0.2f, relief = 1f,
+            pressureSize = 0.85f, pressureGamma = 1.3f, pressureFlow = 0.4f, pressureOpacity = 0.2f, smudgeStrength = 0.85f,
+        ),
+        BrushPreset(
+            id = "palette_knife", name = "Palette Knife", category = BrushCategory.PAINTING,
+            defaultSize = 60f, maxSize = 350f,
+            tip = TipShape.ROUND, hardness = 0.97f, roundness = 0.22f,
+            tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.03f,
+            streamline = 0.3f, renderMode = RenderMode.WET, flow = 1f,
+            dilution = 0f, charge = 0.7f, pull = 0.6f, relief = 0.8f,
+            pressureSize = 0.8f, pressureGamma = 1.3f, pressureFlow = 0.5f, smudgeStrength = 0.9f,
+        ),
+        BrushPreset(
+            id = "dry_brush", name = "Dry Brush", category = BrushCategory.PAINTING,
+            defaultSize = 45f, maxSize = 300f,
+            tip = TipShape.BRISTLE, spacing = 0.03f, tipAngle = TipAngle.FOLLOW_STROKE,
+            streamline = 0.1f, renderMode = RenderMode.WET, flow = 0.75f,
+            dilution = 0f, charge = 0.45f, pull = 0.2f,
+            grain = GrainTexture.CANVAS, grainScale = 1.2f, grainDepth = 1f, tooth = 1f,
+            dryOut = 1f, streakColour = 0.45f, impasto = 0.2f,
+            pressureSize = 0.35f, pressureFlow = 0.7f, pressureOpacity = 0.3f,
+        ),
+        BrushPreset(
+            id = "flat_acrylic", name = "Flat Acrylic", category = BrushCategory.PAINTING,
+            defaultSize = 40f, maxSize = 300f,
+            tip = TipShape.BRISTLE, spacing = 0.03f, tipAngle = TipAngle.FOLLOW_STROKE,
+            streamline = 0.2f, renderMode = RenderMode.WET, flow = 0.95f,
+            dilution = 0f, charge = 0.9f, pull = 0.15f,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.4f, tooth = 0.3f,
+            dryOut = 0.2f, streakColour = 0.15f, relief = 0.25f,
+            pressureSize = 0.8f, pressureGamma = 1.3f, pressureFlow = 0.5f, pressureOpacity = 0.25f,
+        ),
+        BrushPreset(
+            id = "filbert", name = "Filbert", category = BrushCategory.PAINTING,
+            defaultSize = 36f, maxSize = 300f,
+            tip = TipShape.BRISTLE, spacing = 0.03f, tipAngle = TipAngle.FOLLOW_STROKE,
+            streamline = 0.2f, taperStart = 0.6f, taperEnd = 0.9f, taperMinSize = 0.35f,
+            renderMode = RenderMode.WET, flow = 0.85f, dilution = 0.05f, charge = 0.75f, pull = 0.4f,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.5f, tooth = 0.4f,
+            dryOut = 0.45f, streakColour = 0.3f, relief = 0.45f,
+            pressureSize = 0.8f, pressureFlow = 0.5f, pressureOpacity = 0.25f,
+        ),
+        BrushPreset(
+            id = "hard_round", name = "Hard Round", category = BrushCategory.PAINTING,
+            defaultSize = 30f, maxSize = 300f,
+            tip = TipShape.ROUND, hardness = 0.95f, spacing = 0.02f,
+            streamline = 0.2f, taperStart = 0.5f, taperEnd = 1f, taperMinSize = 0.2f,
+            renderMode = RenderMode.WET, flow = 1f, dilution = 0f, charge = 0.9f, pull = 0.2f,
+            pressureSize = 0.75f, pressureFlow = 0.4f,
+        ),
+        BrushPreset(
+            id = "fan_brush", name = "Fan Brush", category = BrushCategory.PAINTING,
+            defaultSize = 60f, maxSize = 300f,
+            tip = TipShape.BRISTLE, spacing = 0.03f, tipAngle = TipAngle.FOLLOW_STROKE,
+            streamline = 0.1f, renderMode = RenderMode.WET, flow = 0.8f,
+            dilution = 0f, charge = 0.5f, pull = 0.25f,
+            dryOut = 0.9f, streakColour = 0.5f, impasto = 0.15f,
+            pressureSize = 0.5f, pressureFlow = 0.6f, pressureOpacity = 0.3f,
+        ),
+        BrushPreset(
+            id = "oil_glaze", name = "Oil Glaze", category = BrushCategory.PAINTING,
+            defaultSize = 70f, maxSize = 400f, defaultOpacity = 0.7f,
+            tip = TipShape.ROUND, hardness = 0.35f, spacing = 0.025f,
+            streamline = 0.25f, renderMode = RenderMode.WET, flow = 0.3f,
+            dilution = 0.55f, charge = 1f, pull = 0.5f,
+            pressureSize = 0.3f, pressureFlow = 0.7f,
         ),
         BrushPreset(
             id = "mixer_oil", name = "Mixer Oil", category = BrushCategory.PAINTING,
@@ -264,6 +370,69 @@ object BrushLibrary {
             grain = GrainTexture.PAPER, grainScale = 1f, grainDepth = 0.3f,
             pressureSize = 0.5f, pressureFlow = 0.5f,
         ),
+        // Blending. With the brush they push paint around without adding colour; with the smudge
+        // tool their tip and strength are what count.
+        BrushPreset(
+            id = "soft_blend", name = "Soft Blend", category = BrushCategory.BLENDING,
+            defaultSize = 90f, maxSize = 500f,
+            tip = TipShape.ROUND, hardness = 0.25f, spacing = 0.05f,
+            streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.6f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            pressureSize = 0.65f, pressureFlow = 0.7f, smudgeStrength = 0.6f,
+        ),
+        BrushPreset(
+            id = "bristle_blend", name = "Bristle Blend", category = BrushCategory.BLENDING,
+            defaultSize = 55f, maxSize = 350f,
+            tip = TipShape.BRISTLE, spacing = 0.03f, tipAngle = TipAngle.FOLLOW_STROKE,
+            streamline = 0.15f, renderMode = RenderMode.MIXER, flow = 0.9f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            grain = GrainTexture.CANVAS, grainScale = 1f, grainDepth = 0.4f, tooth = 0.3f,
+            streakColour = 0.15f,
+            pressureSize = 0.65f, pressureFlow = 0.6f, smudgeStrength = 0.9f,
+        ),
+        BrushPreset(
+            id = "textured_blend", name = "Textured Blend", category = BrushCategory.BLENDING,
+            defaultSize = 60f, maxSize = 350f,
+            tip = TipShape.CHARCOAL, spacing = 0.05f, rotationJitter = 8f,
+            streamline = 0.15f, renderMode = RenderMode.MIXER, flow = 0.8f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            grain = GrainTexture.LAID, grainScale = 1.3f, grainDepth = 0.85f, tooth = 0.8f,
+            pressureSize = 0.65f, pressureFlow = 0.6f, smudgeStrength = 0.8f,
+        ),
+        BrushPreset(
+            id = "wet_blend", name = "Wet Blend", category = BrushCategory.BLENDING,
+            defaultSize = 60f, maxSize = 400f,
+            tip = TipShape.GAUSSIAN, spacing = 0.03f,
+            streamline = 0.35f, renderMode = RenderMode.MIXER, flow = 1f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            pressureSize = 0.5f, pressureFlow = 0.4f, smudgeStrength = 0.97f,
+        ),
+        BrushPreset(
+            id = "finger_blend", name = "Finger", category = BrushCategory.BLENDING,
+            defaultSize = 40f, maxSize = 250f,
+            tip = TipShape.ROUND, hardness = 0.85f, roundness = 0.55f, tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.04f,
+            streamline = 0.2f, renderMode = RenderMode.MIXER, flow = 0.8f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            grain = GrainTexture.CANVAS, grainScale = 0.8f, grainDepth = 0.85f, tooth = 0.5f,
+            pressureSize = 0.65f, pressureFlow = 0.8f, smudgeStrength = 0.55f,
+        ),
+        BrushPreset(
+            id = "knife_blend", name = "Knife Blend", category = BrushCategory.BLENDING,
+            defaultSize = 60f, maxSize = 350f,
+            tip = TipShape.ROUND, hardness = 0.97f, roundness = 0.22f,
+            tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.03f,
+            streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 1f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            pressureSize = 0.65f, pressureFlow = 0.4f, smudgeStrength = 0.95f,
+        ),
+        BrushPreset(
+            id = "blur_blend", name = "Soften", category = BrushCategory.BLENDING,
+            defaultSize = 120f, maxSize = 600f,
+            tip = TipShape.GAUSSIAN, spacing = 0.05f,
+            streamline = 0.3f, renderMode = RenderMode.MIXER, flow = 0.8f,
+            mixerWet = 1f, mixerLoad = 0f, mixerMix = 1f, mixerSampleAll = true, blendOnly = true,
+            pressureSize = 0.65f, pressureFlow = 0.3f, smudgeStrength = 0.5f, soften = true,
+        ),
         // Watercolour
         BrushPreset(
             id = "wet_wash", name = "Wet Wash", category = BrushCategory.WATERCOLOR,
@@ -281,8 +450,55 @@ object BrushLibrary {
             streamline = 0.3f, taperStart = 0.8f, taperEnd = 2f, taperMinSize = 0.15f,
             renderMode = RenderMode.WASH, flow = 0.5f, blendMode = BlendMode.MULTIPLY,
             grain = GrainTexture.COLD_PRESS, grainScale = 1f,
-            edgeDarken = 1f, granulation = 0.35f, pigmentFlow = 0.4f, edgeWobble = 0.7f,
+            edgeDarken = 0.85f, granulation = 0.35f, pigmentFlow = 0.4f, edgeWobble = 0.7f,
             pressureSize = 0.55f, pressureOpacity = 0.4f, smudgeStrength = 0.6f,
+        ),
+        BrushPreset(
+            id = "flat_wash", name = "Flat Wash", category = BrushCategory.WATERCOLOR,
+            defaultSize = 60f, maxSize = 300f, defaultOpacity = 0.6f,
+            tip = TipShape.ROUND, hardness = 0.4f, roundness = 0.3f,
+            tipAngle = TipAngle.FOLLOW_STROKE, angleDegrees = 90f, spacing = 0.02f,
+            streamline = 0.3f, renderMode = RenderMode.WASH, flow = 0.5f, blendMode = BlendMode.MULTIPLY,
+            grain = GrainTexture.COLD_PRESS, grainScale = 1f, charge = 1.5f,
+            edgeDarken = 0.6f, granulation = 0.25f, pigmentFlow = 0.5f, edgeWobble = 0.6f,
+            pressureSize = 0.2f, pressureOpacity = 0.4f,
+        ),
+        BrushPreset(
+            id = "wet_in_wet", name = "Wet-in-Wet", category = BrushCategory.WATERCOLOR,
+            defaultSize = 90f, maxSize = 450f, defaultOpacity = 0.55f,
+            tip = TipShape.ROUND, hardness = 0.05f, spacing = 0.05f,
+            streamline = 0.3f, renderMode = RenderMode.WASH, flow = 0.3f, blendMode = BlendMode.MULTIPLY,
+            grain = GrainTexture.COLD_PRESS, grainScale = 1f, charge = 2f,
+            edgeDarken = 0.1f, granulation = 0.2f, pigmentFlow = 0.9f, edgeWobble = 1f,
+            pressureSize = 0.3f, pressureOpacity = 0.5f,
+        ),
+        BrushPreset(
+            id = "dry_watercolour", name = "Dry Watercolour", category = BrushCategory.WATERCOLOR,
+            defaultSize = 40f, maxSize = 250f, defaultOpacity = 0.7f,
+            tip = TipShape.ROUND, hardness = 0.6f, spacing = 0.04f,
+            streamline = 0.2f, renderMode = RenderMode.WASH, flow = 0.6f, blendMode = BlendMode.MULTIPLY,
+            grain = GrainTexture.COLD_PRESS, grainScale = 1.3f, grainDepth = 1f, tooth = 0.7f, charge = 0.35f,
+            edgeDarken = 0.35f, granulation = 0.35f, pigmentFlow = 0.3f, edgeWobble = 1f,
+            pressureSize = 0.4f, pressureOpacity = 0.3f,
+        ),
+        BrushPreset(
+            id = "detail_round", name = "Detail Round", category = BrushCategory.WATERCOLOR,
+            defaultSize = 10f, maxSize = 60f, defaultOpacity = 0.7f,
+            tip = TipShape.ROUND, hardness = 0.5f, spacing = 0.05f,
+            streamline = 0.35f, taperStart = 1f, taperEnd = 2.5f, taperMinSize = 0.1f,
+            renderMode = RenderMode.WASH, flow = 0.6f, blendMode = BlendMode.MULTIPLY,
+            grain = GrainTexture.COLD_PRESS, grainScale = 1f,
+            edgeDarken = 0.8f, granulation = 0.2f, pigmentFlow = 0.3f, edgeWobble = 0.4f,
+            pressureSize = 0.8f, pressureOpacity = 0.3f,
+        ),
+        BrushPreset(
+            id = "granulating_wash", name = "Granulating Wash", category = BrushCategory.WATERCOLOR,
+            defaultSize = 70f, maxSize = 400f, defaultOpacity = 0.65f,
+            tip = TipShape.ROUND, hardness = 0.2f, spacing = 0.04f,
+            streamline = 0.25f, renderMode = RenderMode.WASH, flow = 0.4f, blendMode = BlendMode.MULTIPLY,
+            grain = GrainTexture.COLD_PRESS, grainScale = 1f,
+            edgeDarken = 0.5f, granulation = 1f, pigmentFlow = 0.6f, edgeWobble = 0.8f,
+            pressureSize = 0.3f, pressureOpacity = 0.5f,
         ),
         // Artistic
         BrushPreset(
@@ -308,6 +524,30 @@ object BrushLibrary {
             grain = GrainTexture.LAID, grainScale = 1.4f, grainDepth = 0.75f, tooth = 1f, dust = 0.35f,
             pressureSize = 0.25f, pressureOpacity = 0.35f, tiltSize = 1.2f, tiltOpacity = 0.4f,
         ),
+        BrushPreset(
+            id = "oil_pastel", name = "Oil Pastel", category = BrushCategory.ARTISTIC,
+            defaultSize = 30f, maxSize = 160f,
+            tip = TipShape.CHARCOAL, spacing = 0.03f, rotationJitter = 25f,
+            streamline = 0.1f, flow = 1f,
+            grain = GrainTexture.CANVAS, grainScale = 1.1f, grainDepth = 0.7f, tooth = 0.75f,
+            pressureSize = 0.25f, pressureFlow = 0.5f, pressureOpacity = 0.3f,
+        ),
+        BrushPreset(
+            id = "wax_crayon", name = "Wax Crayon", category = BrushCategory.ARTISTIC,
+            defaultSize = 14f, maxSize = 80f, defaultOpacity = 0.9f,
+            tip = TipShape.CHARCOAL, spacing = 0.06f, rotationJitter = 4f,
+            streamline = 0.15f, flow = 1f,
+            grain = GrainTexture.DRAWING, grainScale = 1.4f, grainDepth = 1f, tooth = 1f,
+            pressureSize = 0.2f, pressureOpacity = 0.45f, tiltSize = 0.8f, tiltOpacity = 0.3f,
+        ),
+        BrushPreset(
+            id = "chalk", name = "Chalk", category = BrushCategory.ARTISTIC,
+            defaultSize = 22f, maxSize = 150f,
+            tip = TipShape.CHARCOAL, spacing = 0.06f, rotationJitter = 10f, lateralJitter = 0.01f,
+            streamline = 0.1f, flow = 0.95f,
+            grain = GrainTexture.FINE, grainScale = 1f, grainDepth = 0.75f, tooth = 1f, dust = 0.3f,
+            pressureSize = 0.25f, pressureOpacity = 0.35f, tiltSize = 1.4f, tiltOpacity = 0.45f,
+        ),
         // Airbrushing
         BrushPreset(
             id = "soft_airbrush", name = "Soft Airbrush", category = BrushCategory.AIRBRUSHING,
@@ -323,6 +563,14 @@ object BrushLibrary {
             streamline = 0.2f, pressureSize = 0.25f, pressureFlow = 0.3f,
         ),
         // Textures
+        BrushPreset(
+            id = "sponge", name = "Sponge", category = BrushCategory.TEXTURES,
+            defaultSize = 80f, maxSize = 400f, defaultOpacity = 0.85f,
+            tip = TipShape.CHARCOAL, spacing = 0.35f, rotationJitter = 180f, sizeJitter = 0.25f, lateralJitter = 0.08f,
+            streamline = 0f, flow = 0.9f,
+            grain = GrainTexture.CHALK, grainScale = 2.6f, grainDepth = 1f, tooth = 0.85f,
+            pressureSize = 0.3f, pressureOpacity = 0.5f,
+        ),
         BrushPreset(
             id = "splatter", name = "Splatter", category = BrushCategory.TEXTURES,
             defaultSize = 90f, maxSize = 500f,
@@ -340,7 +588,7 @@ object BrushLibrary {
 
     val default: BrushPreset get() = byId("studio_pen")
     val defaultEraser: BrushPreset get() = byId("hard_airbrush")
-    val defaultSmudge: BrushPreset get() = byId("soft_airbrush")
+    val defaultSmudge: BrushPreset get() = byId("soft_blend")
 
     fun byId(id: String?): BrushPreset =
         custom.firstOrNull { it.id == id } ?: builtIn.firstOrNull { it.id == id } ?: builtIn.first { it.id == "studio_pen" }
