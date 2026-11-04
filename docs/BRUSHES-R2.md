@@ -89,3 +89,29 @@ How this beats the control: every point in the list above is visible on the stud
 9. Watercolour Round's rim darkness varies along the edge (a test checks its spread).
 10. All existing engine tests still pass, and the Android CI build is green.
 11. The web app runs the new brushes: the brush library shows them and an end-to-end pen test passes.
+
+## Loop log
+
+Scores are from a separate rater agent that compared the study sheets and app screenshots with the control (control → new).
+
+| Loop | Heavy paint | Paint feel | Blending | Variety | Watercolour | Speed | No regressions | What changed |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 1 → 5 | 5 → 6 | 2 → 5 | 5 → 7 | 4 → 6 | 4 → 9 | 10 → 10 | Relief, wet-in-wet, lane smudge, 24 brushes, speed work |
+| 2 | 6 | 6 | 5 | 7 | 6 | 9 | 10 | Pressure width, torn relief edges, varied rims, chalk and pastel fixes |
+| 3 | 7 | 7 | 5 | 8 | 6 | 9 | 10 | Thinner light-pressure paint, softer relief, Hard Round, Fan Brush, Sponge |
+| 4 | 7 | 7 | 7 | 8 | 6 | 9 | 10 | Smudge keeps coverage, real Soften blur, stronger bloom |
+| 5 | 7 | 7 | 7 | 8 | 7 | 9 | 10 | Rims only on parts of the edge, broad pigment variation |
+
+Open gaps (from the rater, loop 5):
+- Wet-in-wet crossing still reads as a hard-edged overlap. Bloom should spread further and feather.
+- Flat Wash shows fine stamp banding. Dry Watercolour keeps a full outline.
+- Heavy Paint and Palette Knife still show fine ribbing and square stamp corners at the start of strokes.
+- Smudging thick paint flattens its relief. A per-layer height map would be needed to keep it.
+- Wet Blend and Finger look alike. Sponge repeats a visible pattern. Fan Brush tips are blurred.
+- Wet-in-Wet costs about 8.4 ms per point. It is not yet measured on a real tablet.
+
+Acceptance criteria: all 11 met. Evidence:
+- `BrushLookTest` covers relief, the start square, blend streaks, the Blending category, rim variation and wet-in-wet.
+- JS timings: Wet Wash 30.5 → about 7 ms per point; Watercolour Round pen-up 1247 → about 12 ms.
+- The web end-to-end pen test passes.
+- CI is green.
