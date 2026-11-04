@@ -45,7 +45,8 @@ class StrokeSession(
     /** Where earlier watercolour on this layer is still wet, for wet-in-wet. */
     private val wetCanvas: WetCanvas? = null,
 ) {
-    private val brush: BrushPreset = params.brush
+    private val brush: BrushPreset =
+        if (params.paintLoad >= 0f) params.brush.withPaintLoad(params.paintLoad) else params.brush
     /** Blending brushes work like the Smudge tool even when painted with the brush. */
     private val tool: Tool = if (params.tool == Tool.BRUSH && brush.blendOnly) Tool.SMUDGE else params.tool
     private val onMask: Boolean = doc.paintsMask(layer)
@@ -821,7 +822,10 @@ class StrokeSession(
             s.sb = b.coerceIn(0f, 1f) * held
         }
 
-        val strength = (amount * (if (smudge) params.opacity else 1f)).coerceIn(0f, 1f)
+        // Less paint on the brush (the Paint slider) and the stroke runs out sooner.
+        val fade = if (smudge || brush.paintFade <= 0f) 1f
+        else max(0f, 1f - brush.paintFade * distance / (max(params.size, 4f) * 25f))
+        val strength = (amount * fade * (if (smudge) params.opacity else 1f)).coerceIn(0f, 1f)
         val soften = smudge && brush.soften
         val softenStep = max(1, (radius * 0.14f).toInt())
         val shift = TiledSurface.SHIFT

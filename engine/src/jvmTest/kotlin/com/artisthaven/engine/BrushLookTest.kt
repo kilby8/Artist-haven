@@ -258,6 +258,29 @@ class BrushLookTest {
     }
 
     @Test
+    fun paintSliderMakesTheStrokeLastLonger() {
+        // A long stroke with a dry brush runs out sooner than the same stroke fully loaded.
+        for (id in listOf("oil_paint", "watercolor_round", "mixer_oil")) {
+            fun inkNearEnd(load: Float): Int {
+                clock = 0L
+                val doc = Document.blank(1400, 120)
+                draw(Editor(doc), ramp(20f, 60f, 1380f, 60f, 0.7f, 0.7f, steps = 200),
+                    StrokeParams(BrushLibrary.byId(id), size = 40f, color = 0xFF2E5E8C.toInt(), usePressure = true, paintLoad = load))
+                var sum = 0
+                for (x in 1100 until 1350 step 5) for (y in 50..70 step 5) sum += inkAt(doc, x, y)
+                return sum
+            }
+            val dry = inkNearEnd(0.05f)
+            val full = inkNearEnd(1f)
+            println("paint load $id: dry=$dry full=$full")
+            assertTrue("$id: dry $dry vs full $full", full > dry * 1.3f)
+        }
+        val b = BrushLibrary.byId("heavy_paint")
+        assertTrue(b.usesPaintLoad && b.withPaintLoad(1f).relief > b.withPaintLoad(0.1f).relief)
+        assertTrue(!BrushLibrary.byId("soft_blend").usesPaintLoad && !BrushLibrary.byId("6b_pencil").usesPaintLoad)
+    }
+
+    @Test
     fun pencilCatchesOnlyThePaperPeaksUnderLightPressure() {
         val doc = Document.blank(400, 120)
         val editor = Editor(doc)

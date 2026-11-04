@@ -40,5 +40,7 @@ data class StrokeParams(
     val usePressure: Boolean = false,
     /** Extra stabilisation on top of the brush's own StreamLine, 0..1. */
     val extraStreamline: Float = 0f,
+    /** How much paint is on the brush, 0..1, or negative for the brush's own amount. */
+    val paintLoad: Float = -1f,
     val seed: Int = 1,
 )

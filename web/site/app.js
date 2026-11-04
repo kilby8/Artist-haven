@@ -20,6 +20,7 @@ const settings = Object.assign({
   brushes: { brush: 'studio_pen', smudge: 'soft_blend', eraser: 'hard_airbrush' },
   sizes: {},
   opacities: {},
+  loads: {},
   symmetry: 0,
   streamline: 0,
   fillTolerance: 0.2,
@@ -505,6 +506,13 @@ function opacityFor(t) {
   return settings.opacities[slot + ':' + b.id] ?? (slot === 'smudge' ? 0.8 : b.defaultOpacity);
 }
 
+/** Paint on the brush, 0..1, or -1 for brushes that don't carry paint. */
+function loadFor(t) {
+  const slot = slotFor(t), b = brushFor(t);
+  if (slot !== 'brush' || b.paintLoad == null) return -1;
+  return settings.loads[b.id] ?? b.paintLoad;
+}
+
 function selectTool(t) {
   const reopen = t === tool && paintTools.includes(t);
   tool = t;
@@ -521,6 +529,9 @@ function updateToolUi() {
   $('#b-color span').style.background = hex(settings.color);
   sizeSlider.set(sizeToValue(sizeFor(tool)));
   opacitySlider.set(opacityFor(tool));
+  const load = loadFor(tool);
+  $('#load-slider').hidden = load < 0;
+  if (load >= 0) loadSlider.set(load);
 }
 
 function sizeToValue(size) {
@@ -576,6 +587,10 @@ const opacitySlider = vslider($('#opacity-slider'), (v) => {
   settings.opacities[slot + ':' + b.id] = Math.round(v * 100) / 100;
   saveSettings();
 }, (v) => `Opacity ${Math.round(v * 100)}%`);
+const loadSlider = vslider($('#load-slider'), (v) => {
+  settings.loads[brushFor(tool).id] = Math.round(v * 100) / 100;
+  saveSettings();
+}, (v) => `Paint ${v < 0.2 ? 'dry' : v < 0.45 ? 'light' : v < 0.8 ? 'loaded' : 'heavy'} ${Math.round(v * 100)}%`);
 let sliderPreview = false;
 $('#size-slider').addEventListener('pointerup', () => { sliderPreview = false; drawOverlay(); });
 
@@ -1059,6 +1074,7 @@ function strokeParams(e) {
     symmetry: settings.symmetry,
     usePressure: e.pointerType === 'pen',
     streamline: settings.streamline,
+    paintLoad: eraserTip ? -1 : loadFor(t),
   };
 }
 

@@ -131,7 +131,7 @@ class WebEditor private constructor(private val doc: Document) {
      */
     fun beginStroke(
         brushId: String, tool: Int, size: Float, opacity: Float, color: Int, symmetry: Int,
-        usePressure: Boolean, extraStreamline: Float,
+        usePressure: Boolean, extraStreamline: Float, paintLoad: Float,
         x: Float, y: Float, pressure: Float, tilt: Float, azimuth: Float, time: Double,
     ): Boolean {
         if (editor.isStroking) endStroke()
@@ -146,6 +146,7 @@ class WebEditor private constructor(private val doc: Document) {
             symmetry = Symmetry.entries.getOrElse(symmetry) { Symmetry.NONE },
             usePressure = usePressure,
             extraStreamline = extraStreamline,
+            paintLoad = paintLoad,
         )
         apply(editor.beginStroke(params, InputPoint(x, y, pressure, tilt, azimuth, time.toLong())), layer.id)
         return editor.isStroking
@@ -340,6 +341,7 @@ class WebEditor private constructor(private val doc: Document) {
                 put("minSize", b.minSize)
                 put("maxSize", b.maxSize)
                 put("defaultOpacity", b.defaultOpacity)
+                if (b.usesPaintLoad) put("paintLoad", b.defaultPaintLoad)
             })
         }.toString()
 
