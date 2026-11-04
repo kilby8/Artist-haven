@@ -52,7 +52,7 @@ data class Affine(
     }
 
     /** Rotation in degrees. */
-    val rotationDegrees: Float get() = Math.toDegrees(kotlin.math.atan2(b, a).toDouble()).toFloat()
+    val rotationDegrees: Float get() = (kotlin.math.atan2(b, a).toDouble() * 180.0 / kotlin.math.PI).toFloat()
 
     /** Smallest scale along any axis, used to decide how much to supersample when shrinking. */
     val minScale: Float get() = min(hypot(a, b), hypot(c, d))
@@ -79,7 +79,7 @@ data class Affine(
         fun translate(x: Float, y: Float) = Affine(tx = x, ty = y)
         fun scale(sx: Float, sy: Float = sx) = Affine(a = sx, d = sy)
         fun rotate(degrees: Float): Affine {
-            val r = Math.toRadians(degrees.toDouble())
+            val r = (degrees.toDouble() * kotlin.math.PI / 180.0)
             val cs = cos(r).toFloat()
             val sn = sin(r).toFloat()
             return Affine(cs, sn, -sn, cs)

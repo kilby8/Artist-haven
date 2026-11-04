@@ -1,24 +1,33 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
 }
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-}
-
+// The engine is plain Kotlin. The JVM target serves the Android app and the unit tests; the JS
+// target serves the web app (web/), which runs on Windows tablets such as the Surface Pro.
 kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
+    jvm {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
     }
-}
+    js {
+        browser()
+    }
 
-dependencies {
-    implementation(libs.kotlinx.serialization.json)
-    testImplementation(libs.junit)
+    sourceSets {
+        all {
+            languageSettings.optIn("kotlin.io.encoding.ExperimentalEncodingApi")
+        }
+        commonMain.dependencies {
+            implementation(libs.kotlinx.serialization.json)
+        }
+        jvmTest.dependencies {
+            implementation(libs.junit)
+        }
+    }
 }
 
 tasks.withType<Test>().configureEach {

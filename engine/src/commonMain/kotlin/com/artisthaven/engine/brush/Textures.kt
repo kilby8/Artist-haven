@@ -58,15 +58,15 @@ class TipImage(val size: Int, val data: ByteArray) {
         val bytes = ByteArray(2 + data.size)
         bytes[0] = (size shr 8).toByte()
         bytes[1] = size.toByte()
-        System.arraycopy(data, 0, bytes, 2, data.size)
-        return java.util.Base64.getEncoder().encodeToString(bytes)
+        data.copyInto(bytes, 2)
+        return kotlin.io.encoding.Base64.Default.encode(bytes)
     }
 
     fun toMask(): Mask = Mask(size, FloatArray(data.size) { (data[it].toInt() and 0xFF) / 255f })
 
     companion object {
         fun decode(text: String): TipImage? = runCatching {
-            val bytes = java.util.Base64.getDecoder().decode(text)
+            val bytes = kotlin.io.encoding.Base64.Default.decode(text)
             val size = ((bytes[0].toInt() and 0xFF) shl 8) or (bytes[1].toInt() and 0xFF)
             TipImage(size, bytes.copyOfRange(2, bytes.size))
         }.getOrNull()
@@ -105,30 +105,28 @@ object Textures {
     private val tipCache = HashMap<Pair<TipShape, Int>, Mask>()
     private val grainCache = HashMap<GrainTexture, Mask>()
 
-    private val imageCache = object : LinkedHashMap<String, Mask>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Mask>?) = size > 32
-    }
+    /** Picture tips, least recently used first; at most 32 are kept. */
+    private val imageCache = LinkedHashMap<String, Mask>()
+    private val lock = Any()
 
     /** The tip a brush paints with: its picture tip if it has one, otherwise its shape. */
-    @Synchronized
-    fun tipFor(brush: BrushPreset): Mask {
-        val image = brush.tipImage ?: return tip(brush.tip, brush.hardness)
-        return imageCache.getOrPut(image) {
-            TipImage.decode(image)?.toMask() ?: buildTip(TipShape.ROUND, brush.hardness)
-        }
+    fun tipFor(brush: BrushPreset): Mask = locked(lock) {
+        val image = brush.tipImage ?: return@locked tip(brush.tip, brush.hardness)
+        val mask = imageCache.remove(image)
+            ?: TipImage.decode(image)?.toMask() ?: buildTip(TipShape.ROUND, brush.hardness)
+        imageCache[image] = mask
+        while (imageCache.size > 32) imageCache.remove(imageCache.keys.first())
+        mask
     }
 
     /** Tip mask for a shape; [hardness] (0..1) is quantised so masks can be cached. */
-    @Synchronized
-    fun tip(shape: TipShape, hardness: Float): Mask {
+    fun tip(shape: TipShape, hardness: Float): Mask = locked(lock) {
         val h = (hardness.coerceIn(0f, 1f) * 20f).toInt()
-        return tipCache.getOrPut(shape to h) { buildTip(shape, h / 20f) }
+        tipCache.getOrPut(shape to h) { buildTip(shape, h / 20f) }
     }
 
-    @Synchronized
-    fun grain(texture: GrainTexture): Mask? {
-        if (texture == GrainTexture.NONE) return null
-        return grainCache.getOrPut(texture) { buildGrain(texture) }
+    fun grain(texture: GrainTexture): Mask? = locked(lock) {
+        if (texture == GrainTexture.NONE) null else grainCache.getOrPut(texture) { buildGrain(texture) }
     }
 
     private fun buildTip(shape: TipShape, hardness: Float): Mask {

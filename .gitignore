@@ -14,3 +14,10 @@ local.properties
 
 # APKs intended for distribution are published under docs/downloads/
 docs/downloads/*.apk
+/web/build
+/webbuild/build
+/webbuild/.gradle
+/.kotlin
+/webbuild/.kotlin
+/kotlin-js-store
+/webbuild/kotlin-js-store
