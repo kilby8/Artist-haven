@@ -148,7 +148,36 @@ data class BrushPreset(
 
     /** The brush file this brush was imported from, shown in the library; null for our own. */
     val importedFrom: String? = null,
-)
+
+    /** Set by [withPaintLoad]: how quickly a lightly loaded wet brush runs out, 0 = never. */
+    val paintFade: Float = 0f,
+) {
+    /** True for brushes that carry a load of paint that can run out (wet paint and watercolour). */
+    val usesPaintLoad: Boolean
+        get() = !blendOnly && (renderMode == RenderMode.WET || renderMode == RenderMode.WASH || renderMode == RenderMode.MIXER)
+
+    /** How much paint the brush starts with, 0..1, as shown on the Paint slider. */
+    val defaultPaintLoad: Float
+        get() = (if (renderMode == RenderMode.MIXER) mixerLoad else charge).coerceIn(0f, 1f)
+
+    /**
+     * This brush with [load] paint on it, 0 (nearly dry) to 1 (fully loaded). More paint lasts
+     * longer along the stroke and, on thick paint, stands up higher.
+     */
+    fun withPaintLoad(load: Float): BrushPreset {
+        if (!usesPaintLoad) return this
+        val l = load.coerceIn(0f, 1f)
+        val ratio = ((0.25f + l) / (0.25f + defaultPaintLoad)).coerceIn(0.2f, 2.5f)
+        return copy(
+            charge = if (l >= 0.99f) 1f else 0.04f + 0.95f * l,
+            mixerLoad = if (renderMode == RenderMode.MIXER) l else mixerLoad,
+            relief = (relief * ratio).coerceAtMost(1f),
+            paintFade = ((defaultPaintLoad - l) / defaultPaintLoad.coerceAtLeast(0.05f)).coerceIn(0f, 1f),
+            dryOut = if (l < defaultPaintLoad) dryOut + (1f - dryOut) * (defaultPaintLoad - l) else dryOut * ratio.coerceAtLeast(1f).let { 1f / it },
+            impasto = (impasto * ratio).coerceAtMost(1f),
+        )
+    }
+}
 
 enum class BrushCategory(val displayName: String) {
     MINE("My brushes"),

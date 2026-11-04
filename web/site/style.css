@@ -125,6 +125,9 @@ h3 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spaci
 }
 .sidebar.right .vslider .bubble { left: auto; right: 56px; }
 .vslider.dragging .bubble { opacity: 1; }
+.vslider.short { height: 130px; }
+.vslider.paint .track { background: linear-gradient(to top, #4a4a54, #b0784a); }
+.vslider[hidden] { display: none; }
 
 /* ---- Panels ------------------------------------------------------------------------------- */
 .panel {
