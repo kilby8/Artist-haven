@@ -115,3 +115,14 @@ Acceptance criteria: all 11 met. Evidence:
 - JS timings: Wet Wash 30.5 → about 7 ms per point; Watercolour Round pen-up 1247 → about 12 ms.
 - The web end-to-end pen test passes.
 - CI is green.
+
+## Loop 6: watercolour that flows
+
+James: "water color needs to spread better". Research: `/mnt/project-files/research/watercolor-spreading.md` (a simplified Curtis 1997 model).
+
+- Washes now run a water simulation on a quarter-resolution grid (`WaterSim`). Water keeps moving after pen-up, runs only where the paper is wet or damp, carries pigment, and dries with a darker edge where it evaporates fastest.
+- The web app and Android tick the water every frame until it is dry. Undo while wet takes back the stroke and its water.
+- Tests (`WaterFlowTest`): wet-in-wet area 2501 at pen-up → 4097 after 2 s; Watercolour Round on dry paper 1188 → 1189; band edge 208 vs middle 135; red runs into a wet blue wash (rim 535) but not a dry one (1662).
+- JS: Watercolour Round 3.2 ms per point, Wet-in-Wet 8.3, Wet Wash 12.8. Water ticks p50 4.3 ms, p95 62 ms on very large washes.
+
+Open gaps: no Dry button in the UI yet; p95 tick on huge washes; Android water loop is checked only by CI; not yet tried on a real Surface.

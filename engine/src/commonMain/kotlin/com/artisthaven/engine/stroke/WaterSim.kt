@@ -43,7 +43,13 @@ class WaterSim(val width: Int, val height: Int) {
     private val sat = FloatArray(n)
     private val paperH = FloatArray(n)
     private val foot = FloatArray(n)
-    /** How much faster than usual each cell dries at an edge: rims are strong in places, faint in others. */
+    /** Cells the brush itself painted (their outline is kept at full resolution in [footPx]). */
+    private val brushed = ByteArray(n)
+    /** Where cells hold paint, for interpolating pigment only between painted cells. */
+    private val occ = FloatArray(n)
+    /** How much each cell differs from what was last drawn is not enough near a new brush mark. */
+    private var brushRect: IRect? = null
+    /** How much each cell dries faster than usual at an edge: rims are strong in places, faint in others. */
     private val rimVar = FloatArray(n)
     // Suspended and deposited pigment, as absorbance per channel.
     private val gr = FloatArray(n)
@@ -65,7 +71,8 @@ class WaterSim(val width: Int, val height: Int) {
     private var wx0 = gw; private var wy0 = gh; private var wx1 = -1; private var wy1 = -1 // wet
     private var px0 = gw; private var py0 = gh; private var px1 = -1; private var py1 = -1 // painted
     private var sx0 = gw; private var sy0 = gh; private var sx1 = -1; private var sy1 = -1 // damp
-    private var qx0 = gw; private var qy0 = gh; private var qx1 = -1; private var qy1 = -1 // to render
+    private var qx0 = gw; private var qy0 = gh; private var qx1 = -1; private var qy1 = -1 // flowed, to render
+    private var bx0 = gw; private var by0 = gh; private var bx1 = -1; private var by1 = -1 // brushed, to render
 
     // How the latest stroke wants its water to behave.
     private var leak = 0.02f
@@ -86,6 +93,8 @@ class WaterSim(val width: Int, val height: Int) {
     private val tilesY = (height + TiledSurface.TILE - 1) / TiledSurface.TILE
     private val base = arrayOfNulls<IntArray>(tilesX * tilesY)
     private val baseTaken = BooleanArray(tilesX * tilesY)
+    /** The brush's outline at full resolution, 0..255 per pixel, per tile. */
+    private val footPx = arrayOfNulls<ByteArray>(tilesX * tilesY)
 
     private val paper: Mask = Textures.grain(GrainTexture.COLD_PRESS)!!
     /** Fine speckle where heavy pigment settles (granulation). */
@@ -95,7 +104,7 @@ class WaterSim(val width: Int, val height: Int) {
         // The paper's hills and hollows, which the water runs around.
         for (y in 0 until gh) for (x in 0 until gw) {
             val rv = StrokeSession.valueNoise(x * 0.045f + 71f, y * 0.045f + 23f)
-            rimVar[y * gw + x] = 0.25f + 1.5f * rv * rv
+            rimVar[y * gw + x] = 0.15f + 2.4f * rv * rv * rv
             paperH[y * gw + x] = paper.sampleWrapped(x * 1.7f + 31f, y * 1.7f + 11f) * 0.55f +
                 StrokeSession.valueNoise(x * 0.07f + 5f, y * 0.07f + 9f) * 0.45f
         }
@@ -202,26 +211,79 @@ class WaterSim(val width: Int, val height: Int) {
                     gg[i] += (tg - gg[i]) * (if (tg > gg[i]) k else kd)
                     gb[i] += (tb - gb[i]) * (if (tb > gb[i]) k else kd)
                 }
-                // The outline as a smooth field, so it can be drawn sharp between cell centres.
-                val fEdge = min(1f, (1.02f - d2) * 4f + m)
-                if (fEdge > foot[i]) foot[i] = fEdge
-                growPending(x, y)
+                brushed[i] = 1
+                if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y
                 growWet(x, y)
                 growPaint(x, y)
                 growDamp(x, y)
             }
         }
+        outline(cx, cy, radius, cosA, sinA, invRound, tip)
+    }
+
+    /** Records the brush's exact outline at full resolution. */
+    private fun outline(cx: Float, cy: Float, radius: Float, cosA: Float, sinA: Float, invRound: Float, tip: Mask) {
+        val x0 = max(0, (cx - radius - 1f).toInt())
+        val y0 = max(0, (cy - radius - 1f).toInt())
+        val x1 = min(width - 1, (cx + radius + 1f).toInt())
+        val y1 = min(height - 1, (cy + radius + 1f).toInt())
+        val sel = allow
+        val invR = 1f / radius
+        for (y in y0..y1) {
+            val ty = y shr TiledSurface.SHIFT
+            val dy = y + 0.5f - cy
+            val rowT = (y and TiledSurface.MASK) shl TiledSurface.SHIFT
+            val cRow = (y / CELL) * gw
+            for (x in x0..x1) {
+                val dx = x + 0.5f - cx
+                val u = (dx * cosA + dy * sinA) * invR
+                val v = (-dx * sinA + dy * cosA) * invR * invRound
+                if (u * u + v * v > 1.02f) continue
+                if (sel != null && sel[cRow + x / CELL].toInt() == 0) continue
+                val m = tip.sample((u + 1f) * 0.5f, (v + 1f) * 0.5f)
+                if (m <= 0.02f) continue
+                val t = ty * tilesX + (x shr TiledSurface.SHIFT)
+                val px = footPx[t] ?: ByteArray(TiledSurface.TILE * TiledSurface.TILE).also { footPx[t] = it }
+                val k = rowT or (x and TiledSurface.MASK)
+                val q = (min(1f, m * 5f) * 255f).toInt()
+                if (q > (px[k].toInt() and 0xFF)) px[k] = q.toByte()
+            }
+        }
+    }
+
+    /**
+     * Where water spread beyond the brush. Cells the brush painted count only where water ran out
+     * of them, so a stroke that stays put keeps the brush's own smooth outline.
+     */
+    private fun spreadFoot(i: Int): Float {
+        if (brushed[i].toInt() == 0) return foot[i]
+        val x = i % gw
+        if (x > 0 && brushed[i - 1].toInt() == 0 && foot[i - 1] > 0f) return 1f
+        if (x < gw - 1 && brushed[i + 1].toInt() == 0 && foot[i + 1] > 0f) return 1f
+        if (i >= gw && brushed[i - gw].toInt() == 0 && foot[i - gw] > 0f) return 1f
+        if (i + gw < n && brushed[i + gw].toInt() == 0 && foot[i + gw] > 0f) return 1f
+        return 0f
     }
 
     private fun growPending(x: Int, y: Int) {
         if (x < qx0) qx0 = x; if (x > qx1) qx1 = x; if (y < qy0) qy0 = y; if (y > qy1) qy1 = y
     }
 
-    /** The pixel area changed since the last call, to re-render; null if none. */
-    fun takePending(): IRect? {
-        if (qx1 < qx0) return null
-        val r = pixelRect(intArrayOf(qx0, qy0, qx1, qy1))
-        qx0 = gw; qy0 = gh; qx1 = -1; qy1 = -1
+    /**
+     * The pixel area changed since the last call, to re-render; null if none. Where the brush
+     * went is always included; where the water flowed only if [withFlow].
+     */
+    fun takePending(withFlow: Boolean = true): IRect? {
+        var r: IRect? = null
+        if (bx1 >= bx0) {
+            r = pixelRect(intArrayOf(bx0, by0, bx1, by1))
+            brushRect = IRect.unionOf(brushRect, r)
+            bx0 = gw; by0 = gh; bx1 = -1; by1 = -1
+        }
+        if (withFlow && qx1 >= qx0) {
+            r = IRect.unionOf(r, pixelRect(intArrayOf(qx0, qy0, qx1, qy1)))
+            qx0 = gw; qy0 = gh; qx1 = -1; qy1 = -1
+        }
         return r
     }
 
@@ -312,7 +374,7 @@ class WaterSim(val width: Int, val height: Int) {
                     continue
                 }
                 val fw2 = min(1f, w * 25f)
-                if (fw2 > foot[i]) foot[i] = fw2
+                if (fw2 > foot[i] && brushed[i].toInt() == 0) foot[i] = fw2
                 // Soak into the paper.
                 val h = paperH[i]
                 val room = 0.15f + 0.25f * h - sat[i]
@@ -466,11 +528,12 @@ class WaterSim(val width: Int, val height: Int) {
                 val i = row + x
                 sumR[i] = gr[i] + dr[i]; sumG[i] = gg[i] + dg[i]; sumB[i] = gb[i] + db[i]
                 // The outline, smoothed so the grid's steps don't show.
-                val l = if (x > 0) foot[i - 1] else 0f
-                val rr = if (x < gw - 1) foot[i + 1] else 0f
-                val u = if (y > 0) foot[i - gw] else 0f
-                val dd = if (y < gh - 1) foot[i + gw] else 0f
-                footS[i] = foot[i] * 0.5f + (l + rr + u + dd) * 0.125f
+                val l = if (x > 0) spreadFoot(i - 1) else 0f
+                val rr = if (x < gw - 1) spreadFoot(i + 1) else 0f
+                val u = if (y > 0) spreadFoot(i - gw) else 0f
+                val dd = if (y < gh - 1) spreadFoot(i + gw) else 0f
+                footS[i] = spreadFoot(i) * 0.5f + (l + rr + u + dd) * 0.125f
+                occ[i] = if (foot[i] > 0f || brushed[i].toInt() != 0) 1f else 0f
             }
         }
         // Where each pixel column falls between cell centres.
@@ -500,7 +563,8 @@ class WaterSim(val width: Int, val height: Int) {
             val tr = surface.tileRect(tiles[t])
             val ax0 = max(cx0, tr.left / CELL - 1); val ax1 = min(cx1, (tr.right - 1) / CELL + 1)
             val ay0 = max(cy0, tr.top / CELL - 1); val ay1 = min(cy1, (tr.bottom - 1) / CELL + 1)
-            var changed = force || !baseTaken[tiles[t]]
+            val br = brushRect
+            var changed = force || !baseTaken[tiles[t]] || (br != null && !br.intersect(tr).isEmpty)
             var y = ay0
             while (!changed && y <= ay1) {
                 val row = y * gw
@@ -526,6 +590,7 @@ class WaterSim(val width: Int, val height: Int) {
                 }
             }
         }
+        brushRect = null
         var dirty: IRect? = null
         for ((t, index) in tiles.withIndex()) {
             if (!redraw[t]) continue
@@ -535,6 +600,7 @@ class WaterSim(val width: Int, val height: Int) {
                 base[index] = surface.tile(index)?.copyOf()
             }
             val under = base[index]
+            val outlinePx = footPx[index]
             touch(index)
             val r = rect.intersect(surface.tileRect(index))
             if (r.isEmpty) continue
@@ -559,17 +625,26 @@ class WaterSim(val width: Int, val height: Int) {
                     val a = row0 + ix; val b = row0 + ix1; val c = row1 + ix; val d = row1 + ix1
                     val ti = rowT or (x and TiledSurface.MASK)
                     val bp = if (under == null) 0 else under[ti]
-                    val fa = footS[a]; val fb2 = footS[b]; val fc = footS[c]; val fd = footS[d]
+                    val oa = occ[a]; val ob = occ[b]; val oc = occ[c]; val od = occ[d]
                     var out = bp
-                    if (fa + fb2 + fc + fd > 0f) {
-                        val wa = (1f - tx) * (1f - ty); val wb = tx * (1f - ty); val wc = (1f - tx) * ty; val wd = tx * ty
-                        val fp = fa * wa + fb2 * wb + fc * wc + fd * wd
+                    if (oa + ob + oc + od > 0f) {
+                        val wa = (1f - tx) * (1f - ty) * oa; val wb = tx * (1f - ty) * ob
+                        val wc = (1f - tx) * ty * oc; val wd = tx * ty * od
                         val grain = pData[pRow + (x and pMask)]
-                        // A crisp edge that follows the paper, even though the grid is coarse.
-                        val cover = ((fp + (grain - 0.5f) * 0.35f - 0.42f) * edgeSharpness + (8f - edgeSharpness) * 0.05f)
-                        if (cover > 0f) {
+                        // The outline: exactly where the brush went (full resolution), or where the
+                        // water spread to (smoothed from the grid), with a little paper wobble.
+                        val fpx = if (outlinePx == null) 0f else (outlinePx[ti].toInt() and 0xFF) * INV255
+                        val fs = (footS[a] * (1f - tx) + footS[b] * tx) * (1f - ty) + (footS[c] * (1f - tx) + footS[d] * tx) * ty
+                        val soft = (8f - edgeSharpness) * 0.05f
+                        val c1 = (fpx + (grain - 0.5f) * 0.2f - 0.25f) * edgeSharpness * 1.5f + soft
+                        val c2 = (fs + (grain - 0.5f) * 0.35f - 0.42f) * edgeSharpness + soft
+                        // Where the brush's edge meets water that ran past it, the two together cover.
+                        val c3 = (1f - (1f - fpx) * (1f - fs) + (grain - 0.5f) * 0.35f - 0.42f) * edgeSharpness + soft
+                        val cover = if (c1 > c2) (if (c1 > c3) c1 else c3) else (if (c2 > c3) c2 else c3)
+                        val wsum = wa + wb + wc + wd
+                        if (cover > 0f && wsum > 0f) {
                             val speck = gData[gRow + (x and gMask)] * 0.7f + grain * 0.3f
-                            var gm = (if (cover > 1f) 1f else cover) * opacity * (1f + gran * (0.5f - speck))
+                            var gm = (if (cover > 1f) 1f else cover) * opacity * (1f + gran * (0.5f - speck)) / wsum
                             if (gm < 0f) gm = 0f
                             val ar = (sumR[a] * wa + sumR[b] * wb + sumR[c] * wc + sumR[d] * wd) * gm
                             val ag = (sumG[a] * wa + sumG[b] * wb + sumG[c] * wc + sumG[d] * wd) * gm
@@ -603,31 +678,32 @@ class WaterSim(val width: Int, val height: Int) {
 
     /** Lays pigment with absorbance [ar], [ag], [ab] over premultiplied [b], multiplying like glazes. */
     private fun glaze(b: Int, ar: Float, ag: Float, ab: Float, alphaLock: Boolean): Int {
+        // Integer maths throughout: float-to-int conversion is slow in the web build.
         val tr = transmit(ar)
         val tg = transmit(ag)
         val tb = transmit(ab)
-        val ba = (b ushr 24) * INV255
-        val br = ((b shr 16) and 0xFF) * INV255
-        val bg = ((b shr 8) and 0xFF) * INV255
-        val bb = (b and 0xFF) * INV255
-        if (alphaLock) return pack(ba, br * tr, bg * tg, bb * tb)
+        val ba = b ushr 24
+        val br = (b shr 16) and 0xFF
+        val bg = (b shr 8) and 0xFF
+        val bb = b and 0xFF
+        if (alphaLock) return (ba shl 24) or (((br * tr) shr 8) shl 16) or (((bg * tg) shr 8) shl 8) or ((bb * tb) shr 8)
         // The pigment on its own, as premultiplied colour over nothing: over white it shows T.
-        val pa = 1f - min(tr, min(tg, tb))
-        val pr = tr - 1f + pa
-        val pg = tg - 1f + pa
-        val pb = tb - 1f + pa
+        val tMin = min(tr, min(tg, tb))
+        val pa = ((256 - tMin) * 255) shr 8
+        val pr = ((tr - tMin) * 255) shr 8
+        val pg = ((tg - tMin) * 255) shr 8
+        val pb = ((tb - tMin) * 255) shr 8
         // Multiply blend: over opaque paint this is exactly base times T.
-        val ia = 1f - ba
-        val ip = 1f - pa
-        return pack(pa + ba - pa * ba, pr * ia + br * ip + pr * br, pg * ia + bg * ip + pg * bg, pb * ia + bb * ip + pb * bb)
-    }
-
-    private fun pack(a: Float, r: Float, g: Float, b: Float): Int {
-        var ai = (a * 255f + 0.5f).toInt(); if (ai > 255) ai = 255
-        var ri = (r * 255f + 0.5f).toInt(); if (ri > ai) ri = ai; if (ri < 0) ri = 0
-        var gi = (g * 255f + 0.5f).toInt(); if (gi > ai) gi = ai; if (gi < 0) gi = 0
-        var bi = (b * 255f + 0.5f).toInt(); if (bi > ai) bi = ai; if (bi < 0) bi = 0
-        return (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+        val ia = 255 - ba
+        val ip = 255 - pa
+        val oa = pa + ba - Pixels.mulDiv255(pa, ba)
+        var or = Pixels.mulDiv255(pr, ia) + Pixels.mulDiv255(br, ip) + Pixels.mulDiv255(pr, br)
+        var og = Pixels.mulDiv255(pg, ia) + Pixels.mulDiv255(bg, ip) + Pixels.mulDiv255(pg, bg)
+        var ob = Pixels.mulDiv255(pb, ia) + Pixels.mulDiv255(bb, ip) + Pixels.mulDiv255(pb, bb)
+        if (or > oa) or = oa
+        if (og > oa) og = oa
+        if (ob > oa) ob = oa
+        return (oa shl 24) or (or shl 16) or (og shl 8) or ob
     }
 
     /**
@@ -643,6 +719,7 @@ class WaterSim(val width: Int, val height: Int) {
                     gr[i] = 0f; gg[i] = 0f; gb[i] = 0f
                     dr[i] = 0f; dg[i] = 0f; db[i] = 0f
                     foot[i] = 0f
+                    brushed[i] = 0
                     water[i] = 0f
                 }
             }
@@ -651,6 +728,7 @@ class WaterSim(val width: Int, val height: Int) {
         wx0 = gw; wy0 = gh; wx1 = -1; wy1 = -1
         base.fill(null)
         baseTaken.fill(false)
+        footPx.fill(null)
     }
 
     /** Dries everything at once where it is (Dry layer, or another tool on this layer). */
@@ -749,10 +827,11 @@ class WaterSim(val width: Int, val height: Int) {
         return c
     }
 
-    private fun transmit(a: Float): Float {
-        if (a <= 0f) return 1f
+    /** Light let through by pigment of absorbance [a], 0..256. */
+    private fun transmit(a: Float): Int {
+        if (a <= 0f) return 256
         val k = (a * EXP_SCALE).toInt()
-        return if (k >= EXP_SIZE) 0f else EXP[k]
+        return if (k >= EXP_SIZE) 0 else EXP[k]
     }
 
     companion object {
@@ -769,10 +848,10 @@ class WaterSim(val width: Int, val height: Int) {
         private const val FRONT_PIGMENT = 0.3f
 
         /** Change in pigment (absorbance) that is worth redrawing. */
-        private const val REDRAW = 0.006f
+        private const val REDRAW = 0.012f
         private const val INV255 = 1f / 255f
         private const val EXP_SCALE = 256f
         private const val EXP_SIZE = 256 * 10
-        private val EXP = FloatArray(EXP_SIZE) { exp(-(it + 0.5f) / EXP_SCALE) }
+        private val EXP = IntArray(EXP_SIZE) { (exp(-(it + 0.5f) / EXP_SCALE) * 256f + 0.5f).toInt() }
     }
 }

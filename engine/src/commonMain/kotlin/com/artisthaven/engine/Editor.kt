@@ -70,6 +70,7 @@ class Editor(val doc: Document, val history: History = History()) {
     private var waterLabel = "Watercolour"
     private var waterSnapshot: Pair<WaterSim, WaterSim.Snapshot>? = null
     private var waterClock = 0.0
+    private var waterFrame = 0
 
     private fun waterSimFor(layer: Layer): WaterSim {
         val w = waterSims[layer.id]
@@ -122,6 +123,7 @@ class Editor(val doc: Document, val history: History = History()) {
         waterClock += elapsedMillis.coerceAtLeast(0.0)
         var steps = (waterClock / STEP_MILLIS).toInt()
         waterClock -= steps * STEP_MILLIS
+        if (steps > 0) waterFrame++
         if (steps > maxSteps) {
             steps = maxSteps
             waterClock = 0.0
@@ -131,8 +133,15 @@ class Editor(val doc: Document, val history: History = History()) {
             val layer = doc.layer(id) ?: continue
             if (!sim.isActive) continue
             repeat(steps) { sim.step() }
-            dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.takePending()))
-            if (!sim.isWet && stroke == null) sim.bake()
+            // Where the brush is goes on screen at once; the slower creep of the water every
+            // other frame (every third while painting, to keep the pen quick).
+            val flowNow = !sim.isWet || waterFrame % (if (stroke != null) 3 else 2) == 0
+            dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.takePending(withFlow = flowNow)))
+            if (!sim.isWet && stroke == null) {
+                // One last full redraw, so nothing skipped along the way is left behind.
+                dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.paintedRect(), force = true))
+                sim.bake()
+            }
         }
         if (stroke == null && !isWet) closeWaterStep()
         return Change(dirty, false)
@@ -204,7 +213,7 @@ class Editor(val doc: Document, val history: History = History()) {
         val s = StrokeSession(doc, layer, params.copy(seed = seed++), mixerState, wetCanvasFor(layer), sim)
         stroke = s
         dirty = IRect.unionOf(dirty, s.add(first))
-        if (sim != null) dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.takePending()))
+        if (sim != null) dirty = IRect.unionOf(dirty, renderWater(layer, sim, sim.takePending(withFlow = false)))
         return Change(dirty, false)
     }
 
@@ -229,7 +238,7 @@ class Editor(val doc: Document, val history: History = History()) {
         result.command?.let { history.push(it) }
         var dirty = result.dirty
         waterSnapshot?.let { (sim, _) ->
-            doc.activeLayer?.let { dirty = IRect.unionOf(dirty, renderWater(it, sim, sim.takePending())) }
+            doc.activeLayer?.let { dirty = IRect.unionOf(dirty, renderWater(it, sim, sim.takePending(withFlow = false))) }
         }
         waterSnapshot = null
         return changed(Change(dirty, false))

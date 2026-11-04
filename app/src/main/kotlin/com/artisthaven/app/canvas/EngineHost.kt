@@ -105,6 +105,37 @@ class EngineHost(
         val c = editor.endStroke()
         if (c.dirty != null) markLayer(layer)
         apply(c, publish = true)
+        startWater()
+    }
+
+    // ---- Watercolour keeps flowing after the pen lifts -------------------------------------------
+
+    private var waterRunning = false
+    private var waterLast = 0L
+
+    private fun startWater() {
+        if (waterRunning || closed || !editor.isWaterActive) return
+        waterRunning = true
+        waterLast = SystemClock.uptimeMillis()
+        engine.postDelayed(::waterTick, 16)
+    }
+
+    private fun waterTick() {
+        waterRunning = false
+        if (closed) return
+        val now = SystemClock.uptimeMillis()
+        if (!editor.isStroking) {
+            val canUndo = editor.history.canUndo
+            val rev = editor.revision
+            val c = editor.tickWater((now - waterLast).coerceAtMost(100L).toDouble())
+            if (c.dirty != null) markAll()
+            apply(c, publish = rev != editor.revision || canUndo != editor.history.canUndo)
+        }
+        waterLast = now
+        if (editor.isWaterActive) {
+            waterRunning = true
+            engine.postDelayed(::waterTick, 16)
+        }
     }
 
     fun cancelStroke() = run { apply(editor.cancelStroke(), publish = false) }
@@ -195,6 +226,9 @@ class EngineHost(
 
     fun redo() = run { markAll(); apply(editor.redo(), publish = true) }
 
+    /** Dries all wet watercolour where it is. */
+    fun dryWater() = run { markAll(); apply(editor.dryWater(), publish = true) }
+
     // ---- Layers ---------------------------------------------------------------------------------
 
     fun addLayer() = run { apply(editor.addLayer(), publish = true) }
@@ -250,6 +284,7 @@ class EngineHost(
     /** Saves, then stops the engine thread. */
     fun close(done: (() -> Unit)? = null) {
         engine.post {
+            if (editor.isWaterActive) apply(editor.dryWater(), publish = false)
             saveIfNeeded()
             closed = true
             thread.quitSafely()
