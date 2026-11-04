@@ -834,7 +834,7 @@ class StrokeSession(
         val body = (0.35f + 0.65f * dabPressure) * (0.45f + 0.55f * reliefLoad)
         val startLen = max(params.size, 4f) * 0.7f
         val blob = if (distance < startLen) 0.7f * (1f - distance / startLen) else 0f
-        val groove = if (bristly) 0.5f else 0.1f
+        val groove = if (bristly) 0.3f else 0.1f
         // Bristle grooves, softened so they read as paint and not as a comb.
         val smooth: FloatArray? = if (relief && b != null) {
             val n = b.lanes
@@ -899,7 +899,7 @@ class StrokeSession(
                         }
                         val lump = lumps[i]
                         val surfaceH = body * (1f - groove + groove * cov) * (1f + lump * 0.7f)
-                        val target = reliefScale * (surfaceH + ridge * 0.9f + blob * m)
+                        val target = reliefScale * (surfaceH + ridge * 0.65f + blob * m)
                         heights[i] += (target - heights[i]) * min(1f, t * 1.5f)
                     }
                     var src = paint
@@ -1291,7 +1291,7 @@ class StrokeSession(
                 bleeds = false
             }
         }
-        val reachOut = if (bleeds) 1.9f else 1f
+        val reachOut = if (bleeds) 2.4f else 1f
         val ext = radius * reachScale * reachOut
         val rect = IRect.of(cx - ext - 1, cy - ext - 1, cx + ext + 1, cy + ext + 1).intersect(doc.bounds)
         if (rect.isEmpty) return null
@@ -1354,7 +1354,7 @@ class StrokeSession(
                         val w = f * 0.9f
                         if (w > waterTile[i]) waterTile[i] = w
                         val pt = pigTile!!
-                        val pb = pig * f * 0.7f
+                        val pb = pig * f * 0.9f
                         if (pb > pt[i]) pt[i] = pb
                     }
                 }
@@ -1415,14 +1415,15 @@ class StrokeSession(
                 // How much pigment the rim gathers changes along the edge.
                 val rv = valueNoise(x * 0.025f + 401f, y * 0.025f + 89f)
                 // Some stretches get a strong dark edge, some almost none.
-                val rq = ((rv - 0.3f) / 0.5f).coerceIn(0f, 1f)
+                val rq = ((rv - 0.4f) / 0.45f).coerceIn(0f, 1f)
                 out[STATIC + i] = brush.edgeDarken * 2f * (0.05f + 2.6f * rq * rq)
                 var d = 1f
                 if (brush.granulation > 0f) {
                     // Pigment grains clump and settle in the hollows of the paper.
+                    // Pigment settles into the dips of the paper itself, in clumps.
                     val clump = granules.sampleWrapped(x / 3.4f + 63f, y / 3.4f + 17f)
-                    val fine = granules.sampleWrapped(x / 1.3f, y / 1.3f)
-                    val h = clump * 0.65f + fine * 0.35f
+                    val dip = paperTex?.sampleWrapped(x.toFloat(), y.toFloat()) ?: 0.5f
+                    val h = dip * 0.6f + clump * 0.4f
                     d *= 1f + brush.granulation * (0.5f - h) * 1.6f
                 }
                 if (brush.pigmentFlow > 0f) {

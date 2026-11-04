@@ -106,6 +106,9 @@ class BrushLookTest {
         sheet("oil_pastel", 30f, 0xFFE07A1F.toInt())
         sheet("wax_crayon", 14f, 0xFFC0392B.toInt())
         sheet("chalk", 22f, 0xFF4A6FA5.toInt())
+        sheet("hard_round", 30f, 0xFF7A2E3B.toInt())
+        sheet("fan_brush", 60f, 0xFF3E6B3A.toInt())
+        sheet("sponge", 80f, 0xFF4F7A9A.toInt())
         for (b in BrushLibrary.builtIn.filter { it.category == BrushCategory.BLENDING }) blendSheet(b.id)
         blendSheet("soft_airbrush", Tool.SMUDGE)
     }
