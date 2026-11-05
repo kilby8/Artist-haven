@@ -26,25 +26,26 @@ object Compositor {
     ) {
         val r = rect.intersect(doc.bounds)
         if (r.isEmpty) return
-        val visible = doc.layers.filter { it.visible && it.opacity > 0f }
+        val visible = doc.layers
         val paper = if (withPaper) Pixels.premultiply(doc.paperColor or (0xFF shl 24)) else 0
         val count = visible.size
         val tileData = arrayOfNulls<IntArray>(count)
         val maskData = arrayOfNulls<IntArray>(count)
         val hasMask = visible.any { it.mask != null }
-        val clipBase = IntArray(count) { -1 }
-        var base = -1
-        for (i in 0 until count) {
-            if (visible[i].clipping && base >= 0) clipBase[i] = base else base = i
-        }
+        val clipBase = clipBases(visible)
+        val shown = BooleanArray(count) { shows(visible, clipBase, it) }
+        // Layers whose pixels are read: the ones shown, and the bases they are clipped to (a base
+        // at 0% opacity still gives its clipped layers their shape).
+        val needed = BooleanArray(count)
+        for (i in 0 until count) if (shown[i]) { needed[i] = true; if (clipBase[i] >= 0) needed[clipBase[i]] = true }
 
         val shift = TiledSurface.SHIFT
         val tilesX = (doc.width + TiledSurface.TILE - 1) / TiledSurface.TILE
         for (ty in (r.top shr shift)..((r.bottom - 1) shr shift)) {
             for (tx in (r.left shr shift)..((r.right - 1) shr shift)) {
                 val index = ty * tilesX + tx
-                for (i in 0 until count) tileData[i] = visible[i].surface.tile(index)
-                if (hasMask) for (i in 0 until count) maskData[i] = visible[i].mask?.tile(index)
+                for (i in 0 until count) tileData[i] = if (needed[i]) visible[i].surface.tile(index) else null
+                if (hasMask) for (i in 0 until count) maskData[i] = if (needed[i]) visible[i].mask?.tile(index) else null
                 val x0 = maxOf(r.left, tx shl shift)
                 val x1 = minOf(r.right, (tx + 1) shl shift)
                 val y0 = maxOf(r.top, ty shl shift)
@@ -56,6 +57,7 @@ object Compositor {
                         val ti = tileRow or (x and TiledSurface.MASK)
                         var acc = paper
                         for (i in 0 until count) {
+                            if (!shown[i]) continue
                             val data = tileData[i] ?: continue
                             var src = data[ti]
                             if (src == 0) continue
@@ -80,6 +82,27 @@ object Compositor {
                 }
             }
         }
+    }
+
+    /** For each layer, the index of the layer it is clipped to, or -1. */
+    internal fun clipBases(layers: List<Layer>): IntArray {
+        val out = IntArray(layers.size) { -1 }
+        var base = -1
+        for (i in layers.indices) {
+            if (layers[i].clipping && base >= 0) out[i] = base else base = i
+        }
+        return out
+    }
+
+    /**
+     * Whether a layer adds anything to the picture. A clipping mask hides with its base layer,
+     * like Procreate and Photoshop, but still shows when the base is only faded to 0% opacity.
+     */
+    internal fun shows(layers: List<Layer>, clipBase: IntArray, i: Int): Boolean {
+        val l = layers[i]
+        if (!l.visible || l.opacity <= 0f) return false
+        val cb = clipBase[i]
+        return cb < 0 || layers[cb].visible
     }
 
     /** Full straight-ARGB image of the document. */
@@ -107,7 +130,8 @@ object Compositor {
         val tw = maxOf(1, (doc.width * scale).toInt())
         val th = maxOf(1, (doc.height * scale).toInt())
         val out = IntArray(tw * th)
-        val visible = doc.layers.filter { it.visible && it.opacity > 0f }
+        val layers = doc.layers
+        val clipBase = clipBases(layers)
         val paper = if (withPaper && doc.paperVisible) Pixels.premultiply(doc.paperColor or (0xFF shl 24)) else 0
         val fx = doc.width.toFloat() / tw
         val fy = doc.height.toFloat() / th
@@ -117,12 +141,13 @@ object Compositor {
                 val px = ((x + 0.25f + sx * 0.5f) * fx).toInt().coerceIn(0, doc.width - 1)
                 val py = ((y + 0.25f + sy * 0.5f) * fy).toInt().coerceIn(0, doc.height - 1)
                 var acc = paper
-                var base = 0
-                for (layer in visible) {
+                for ((li, layer) in layers.withIndex()) {
+                    if (!shows(layers, clipBase, li)) continue
                     var src = layer.maskedPixel(px, py)
-                    if (!layer.clipping) base = src ushr 24
                     if (src == 0) continue
-                    if (layer.clipping) {
+                    val cb = clipBase[li]
+                    if (cb >= 0) {
+                        val base = layers[cb].maskedPixel(px, py) ushr 24
                         if (base == 0) continue
                         if (base < 255) src = Pixels.scale(src, base / 255f)
                     }

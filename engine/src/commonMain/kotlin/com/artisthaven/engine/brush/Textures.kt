@@ -74,7 +74,7 @@ class TipImage(val size: Int, val data: ByteArray) {
 }
 
 /** Brush tip shapes, generated procedurally so the app ships no image assets. */
-enum class TipShape(val displayName: String) {
+enum class TipShape(val displayName: String, val stamp: Boolean = false) {
     ROUND("Round"),
     PENCIL("Pencil"),
     CHARCOAL("Charcoal"),
@@ -82,10 +82,31 @@ enum class TipShape(val displayName: String) {
     SPLATTER("Splatter"),
     WATERCOLOR("Watercolour"),
     GAUSSIAN("Soft"),
+    // Stamp shapes: drawn whole, corners and all, and usually spaced out along the stroke.
+    SQUARE("Square", true),
+    TRIANGLE("Triangle", true),
+    STAR("Star", true),
+    SPARKLE("Sparkle", true),
+    HEART("Heart", true),
+    LEAF("Leaf", true),
+    FLOWER("Flower", true),
+    FOLIAGE("Foliage", true),
+    GRASS("Grass", true),
+    HAIR("Hair strands", true),
+    RAKE("Rake", true),
+    CLOUD("Cloud", true),
+    SNOWFLAKE("Snowflake", true),
+    DOTS("Halftone dots", true),
+    STIPPLE("Stipple", true),
+    RING("Ring", true),
+    BUBBLE("Bubble", true),
+    HATCH("Hatching", true),
+    CROSS("Cross", true),
+    MOON("Crescent", true),
 }
 
 /** Paper and canvas textures used as brush grain. */
-enum class GrainTexture(val displayName: String) {
+enum class GrainTexture(val displayName: String, val pattern: Boolean = false) {
     NONE("None"),
     PAPER("Cold press paper"),
     FINE("Fine grain"),
@@ -94,6 +115,27 @@ enum class GrainTexture(val displayName: String) {
     DRAWING("Drawing paper"),
     LAID("Charcoal paper"),
     COLD_PRESS("Rough watercolour"),
+    // Patterns: crisp repeating designs that fill the stroke, fixed to the canvas.
+    HALFTONE("Halftone", true),
+    /** Soft cones on a grid: with paper tooth, harder pressure grows the dots (screen tone). */
+    DOT_SCREEN("Dot screen", true),
+    POLKA("Polka dots", true),
+    STRIPES("Stripes", true),
+    CHECKER("Checkerboard", true),
+    CROSSHATCH("Crosshatch", true),
+    BRICK("Brick", true),
+    HONEYCOMB("Honeycomb", true),
+    SCALES("Scales", true),
+    WAVES("Waves", true),
+    CHEVRON("Chevron", true),
+    PLAID("Plaid", true),
+    TWILL("Denim twill", true),
+    WOOD("Wood grain", true),
+    MARBLE("Marble", true),
+    CRACKLE("Crackle", true),
+    LEOPARD("Leopard spots", true),
+    STARFIELD("Little stars", true),
+    STATIC("TV static", true),
 }
 
 object Textures {
@@ -134,6 +176,7 @@ object Textures {
         val d = FloatArray(n * n)
         val c = (n - 1) / 2f
         val rnd = Random(shape.ordinal * 7919 + 17)
+        if (shape.stamp) return Stamps.build(shape, n, hardness)
         when (shape) {
             TipShape.ROUND, TipShape.PENCIL, TipShape.WATERCOLOR, TipShape.GAUSSIAN -> {
                 for (y in 0 until n) for (x in 0 until n) {
@@ -191,7 +234,7 @@ object Textures {
                     d[y * n + x] = along * across * (0.6f + 0.4f * rnd.nextFloat())
                 }
             }
-            TipShape.SPLATTER -> {
+            else -> {
                 repeat(28) {
                     val ang = rnd.nextFloat() * 2f * PI.toFloat()
                     val rad = sqrt(rnd.nextFloat()) * 0.85f
@@ -282,12 +325,13 @@ object Textures {
                 equalise(d)
             }
             GrainTexture.NONE -> d.fill(1f)
+            else -> Patterns.build(texture, d, n)
         }
         return Mask(n, d)
     }
 
     /** Tileable fractal value noise, normalised to 0..1. */
-    private fun fractal(out: FloatArray, n: Int, seed: Int, octaves: Int, base: Int, persistence: Float) {
+    internal fun fractal(out: FloatArray, n: Int, seed: Int, octaves: Int, base: Int, persistence: Float) {
         val rnd = Random(seed)
         var amp = 1f
         var cells = base
@@ -340,7 +384,7 @@ object Textures {
      * Remaps values so they are spread evenly over 0..1 (histogram equalisation). Tooth heights
      * are compared with a pressure threshold, so an even spread makes pressure feel linear.
      */
-    private fun equalise(d: FloatArray) {
+    internal fun equalise(d: FloatArray) {
         var lo = Float.MAX_VALUE
         var hi = -Float.MAX_VALUE
         for (v in d) { if (v < lo) lo = v; if (v > hi) hi = v }

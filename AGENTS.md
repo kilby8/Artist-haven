@@ -9,7 +9,7 @@
 ## Engine (`engine/src/commonMain/kotlin/com/artisthaven/engine`)
 - `raster/`: 64x64 tiled premultiplied ARGB surfaces (empty tiles are null), pixel maths.
 - `document/`: `Document`, `Layer`, `BlendMode` (13 W3C modes), `Compositor` (outputs straight ARGB), `History` (tile before/after snapshots with a byte budget).
-- `brush/`: `BrushPreset` + `BrushLibrary` (21 brushes), procedural tips and grain in `Textures`.
+- `brush/`: `BrushPreset` + `BrushLibrary` (about 200 brushes: the core set in `BrushPreset.kt`, the rest in `MoreBrushes.kt`), procedural tips and grain in `Textures`, stamp tips in `Stamps`, repeating patterns in `Patterns`. `docs/BRUSH-SURVEY.md` maps them to other apps.
 - `stroke/`: `StrokeSession` does smoothing (StreamLine), spacing, taper, dynamics, glaze, wet, wash and Mixer rendering, symmetry. `MixerState` is the paint the Mixer Brush carries between strokes (owned by `Editor`).
 - `tools/`: flood fill, QuickShape recognition. `io/` (JVM only, in `src/jvmMain`): project folder format (`ProjectCodec`), layered PSD export (`PsdWriter`) and import (`PsdReader`), Photoshop brush import (`AbrReader`). Code ported from PhotoCraft is listed in `THIRD_PARTY_NOTICES.md`; keep its MIT notice.
 - `Editor` is the single entry point; every mutating action returns a `Change` and pushes a `Command` so undo works.
@@ -23,7 +23,7 @@
 
 ## Web app (`web/`)
 - `web/src/jsMain/.../WebEditor.kt` is the engine's JavaScript face (`@JsExport`); only numbers, strings and typed arrays cross it. Pixels leave as Int32Arrays whose bytes are RGBA.
-- `web/site/` is hand-written HTML, CSS and JS, no framework: `app.js` (UI, pen/touch/mouse input, view transform), `worker.js` (runs the engine in a module worker and paints into an OffscreenCanvas transferred from the page), `db.js` (projects in IndexedDB, layers gzip-compressed, saved only when they change), `sw.js` (offline), `manifest.webmanifest` (install as an app from Edge or Chrome).
+- `web/site/` is hand-written HTML, CSS and JS, no framework: `app.js` (UI, pen/touch/mouse input, view transform, Brush Studio; custom brushes live in localStorage `ah.customBrushes`), `worker.js` (runs the engine in a module worker and paints into an OffscreenCanvas transferred from the page), `db.js` (projects in IndexedDB, layers gzip-compressed, saved only when they change), `sw.js` (offline), `manifest.webmanifest` (install as an app from Edge or Chrome).
 - Pen input uses Pointer Events: pressure, altitude/azimuth tilt, coalesced events, eraser end (`button 5` / `buttons & 32`).
 - Common engine code must stay portable: no `java.*`, no `synchronized` (use `locked`), and avoid `by lazy` in hot paths (slow on Kotlin/JS).
 - GitHub Pages serves it at `/app/` (deploy-pages.yml builds it on pushes to main).
