@@ -50,7 +50,7 @@ class ProjectStoreTest {
         editor.addLayer()
         editor.setLayerProps(doc.activeLayerId) { it.copy(name = "Inks") }
         val file = java.io.File(context.cacheDir, "Sketch.psd")
-        file.outputStream().use { com.artisthaven.engine.io.PsdWriter.write(doc, it) }
+        file.writeBytes(com.artisthaven.engine.io.PsdWriter.encode(doc))
 
         val (id, _) = store.importPsd(context, android.net.Uri.fromFile(file), maxSide = 4096)
         val (back, m) = store.load(id)

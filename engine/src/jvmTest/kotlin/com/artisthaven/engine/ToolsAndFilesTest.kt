@@ -64,7 +64,7 @@ class ToolsAndFilesTest {
     fun psdHasHeaderAndAllLayers() {
         val doc = sampleDoc()
         val f = File(TestSupport.outputDir, "sample.psd")
-        f.outputStream().buffered().use { PsdWriter.write(doc, it) }
+        f.writeBytes(PsdWriter.encode(doc))
         val bytes = f.readBytes()
         assertEquals("8BPS", String(bytes, 0, 4))
         assertTrue(bytes.size > 1000)

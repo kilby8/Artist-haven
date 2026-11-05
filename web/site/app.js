@@ -28,6 +28,12 @@ const settings = Object.assign({
   fingerPaint: false,
   rightHand: false,
   stylusSeen: false,
+  selShape: 'lasso',
+  selMode: 0,
+  xfUniform: true,
+  grid: { on: false, size: 50, snap: false },
+  rulerOn: false,
+  shape: { kind: 'rect', style: 'outline', sides: 5, even: false },
 }, readJson('ah.settings', {}));
 // Version 2 added real blending brushes: move the smudge tool off the old airbrush default.
 if ((settings.version | 0) < 2) {
@@ -183,10 +189,16 @@ worker.onmessage = (e) => {
     case 'layerThumbs': onLayerThumbs(m.thumbs); break;
     case 'exported': saveBlob(m.blob, exportName(m.type)); break;
     case 'toast': toast(m.message); break;
+    case 'selection': onSelection(m); break;
+    case 'transformStarted': onTransformStarted(m); break;
+    case 'transformed': onTransformed(); break;
+    case 'adjusted': onAdjusted(); break;
+    case 'water': onWater(m); break;
     case 'error':
       console.error(m.message);
       toast(m.message, 5000);
-      if (m.request === 'open' || m.request === 'create') showGallery();
+      if (m.request === 'open' || m.request === 'create' || m.request === 'openPsd') showGallery();
+      if (m.request === 'openPsd') toast("That Photoshop file couldn't be opened: " + m.message, 7000);
       break;
   }
 };
@@ -367,6 +379,7 @@ $('#gallery-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
+  if (/\.(psd|psb)$/i.test(file.name)) { openPsdFile(file).catch(() => {}); return; }
   try {
     const bmp = await createImageBitmap(file);
     const k = Math.min(1, 4096 / Math.max(bmp.width, bmp.height));
@@ -433,13 +446,28 @@ function onOpened(m) {
   document.title = m.name + ' · Artist Haven';
   fitView();
   requestAnimationFrame(() => { docCanvas.style.visibility = ''; });
+  xf = null;
+  adjusting = null;
+  $('#p-adjust').hidden = true;
+  if (!paintTools.includes(tool) && tool !== 'select' && tool !== 'shape') tool = lastPaintTool;
+  placeRuler();
+  $('#b-ruler').classList.toggle('active', !!settings.rulerOn);
+  $('#grid-pop').hidden = true;
+  syncGridUi();
   updateToolUi();
+  showReference(null);
+  db.getReference(m.id).then(b => { if (b && current && current.id === m.id) showReference(b); }).catch(() => {});
 }
 
 function onDocState(m) {
   Object.assign(doc, m);
   $('#b-undo').disabled = !m.canUndo;
   $('#b-redo').disabled = !m.canRedo;
+  // Another edit (or undo) finished the transform or adjustment in progress.
+  if (xf && !m.transforming) { xf = null; if (tool === 'move') tool = lastPaintTool; updateToolUi(); drawOverlay(); }
+  if (adjusting && !m.adjusting) { adjusting = null; $('#p-adjust').hidden = true; }
+  syncMaskBanner();
+  if (tool === 'select') updateSelectionUi();
   if (!$('#p-layers').hidden) renderLayers();
 }
 
@@ -518,7 +546,7 @@ addEventListener('resize', () => { sizeOverlay(); });
 // ---- Tools -----------------------------------------------------------------------------------
 
 const TOOL_IDS = { brush: 0, eraser: 1, smudge: 2 };
-let tool = 'brush';         // brush | smudge | eraser | dropper | fill
+let tool = 'brush';         // brush | smudge | eraser | dropper | fill | select | move | liquify
 let lastPaintTool = 'brush';
 const paintTools = ['brush', 'smudge', 'eraser'];
 
@@ -542,6 +570,7 @@ function loadFor(t) {
 }
 
 function selectTool(t) {
+  if (t !== 'move') finishTransform(true);
   const reopen = t === tool && paintTools.includes(t);
   tool = t;
   if (paintTools.includes(t)) lastPaintTool = t;
@@ -560,6 +589,7 @@ function updateToolUi() {
   const load = loadFor(tool);
   $('#load-slider').hidden = load < 0;
   if (load >= 0) loadSlider.set(load);
+  syncToolBars();
 }
 
 function sizeToValue(size) {
@@ -631,8 +661,17 @@ $('#b-smudge').addEventListener('click', () => selectTool('smudge'));
 $('#b-eraser').addEventListener('click', () => selectTool('eraser'));
 $('#b-dropper').addEventListener('click', () => { tool = tool === 'dropper' ? lastPaintTool : 'dropper'; updateToolUi(); });
 $('#b-fill').addEventListener('click', () => { tool = tool === 'fill' ? lastPaintTool : 'fill'; updateToolUi(); });
-$('#b-undo').addEventListener('click', () => call('undo'));
-$('#b-redo').addEventListener('click', () => call('redo'));
+$('#b-undo').addEventListener('click', () => undo());
+$('#b-redo').addEventListener('click', () => redo());
+function undo() {
+  if (xf) { finishTransform(false); return; }
+  if (adjusting) { endAdjust(false); return; }
+  call('undo');
+}
+function redo() {
+  if (xf || adjusting) return;
+  call('redo');
+}
 $('#b-layers').addEventListener('click', () => togglePanel('p-layers'));
 $('#b-color').addEventListener('click', () => togglePanel('p-color'));
 $('#b-actions').addEventListener('click', () => togglePanel('p-actions'));
@@ -1078,16 +1117,44 @@ const layerThumbs = new Map();
 function renderLayers() {
   const list = $('#layer-list');
   list.textContent = '';
+  const groups = new Map((doc.groups || []).map(g => [g.id, g]));
   for (const [i, l] of doc.layers.entries()) {
+    const g = l.group ? groups.get(l.group) : null;
+    const lastOfGroup = g && doc.layers[i + 1]?.group !== l.group;
+    if (g && collapsedGroups.has(g.id)) {
+      if (lastOfGroup) list.append(groupRow(g, doc.layers.filter(x => x.group === g.id).length));
+      continue;
+    }
     const row = document.createElement('div');
-    row.className = 'layer-row' + (l.active ? ' active' : '') + (l.visible ? '' : ' hidden-layer');
+    row.className = 'layer-row' + (l.active ? ' active' : '') + (l.visible ? '' : ' hidden-layer') + (g ? ' in-group' : '');
+    row.dataset.id = l.id;
     const th = document.createElement('div');
-    th.className = 'lthumb';
+    th.className = 'lthumb' + (l.active && l.hasMask && !l.editingMask ? ' editing' : '');
     const c = document.createElement('canvas');
     const bmp = layerThumbs.get(l.id);
     if (bmp) { c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0); }
     else { c.width = 1; c.height = 1; }
     th.append(c);
+    let mk = null;
+    if (l.hasMask) {
+      mk = document.createElement('div');
+      mk.className = 'lmask' + (l.editingMask ? ' editing' : '');
+      mk.title = l.editingMask ? 'Painting on the mask (tap the picture to paint the layer)' : 'Tap to paint on the mask';
+      const mc = document.createElement('canvas');
+      const mb = maskThumbs.get(l.id);
+      if (mb) { mc.width = mb.width; mc.height = mb.height; mc.getContext('2d').drawImage(mb, 0, 0); } else { mc.width = 1; mc.height = 1; }
+      mk.append(mc);
+      mk.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!l.active) call('layer', { op: 'select', args: [l.id] });
+        call('layer', { op: 'editMask', args: [true] });
+      });
+      th.addEventListener('click', (e) => {
+        if (!l.active || !l.editingMask) return;
+        e.stopPropagation();
+        call('layer', { op: 'editMask', args: [false] });
+      });
+    }
     const name = document.createElement('div');
     name.className = 'lname';
     const mode = blendModes.find(m => m.id === l.blendMode)?.name || 'Normal';
@@ -1102,13 +1169,14 @@ function renderLayers() {
       e.stopPropagation();
       call('layer', { op: 'props', args: [l.id, l.name, !l.visible, l.opacity, l.blendMode, l.alphaLock, l.clipping] });
     });
-    row.append(th, name, vis);
+    row.append(...[th, mk, name, vis].filter(Boolean));
     row.addEventListener('click', (e) => {
       if (l.active) layerMenu(l, i, e.clientX, e.clientY);
       else call('layer', { op: 'select', args: [l.id] });
     });
     row.addEventListener('contextmenu', (e) => { e.preventDefault(); layerMenu(l, i, e.clientX, e.clientY); });
     list.append(row);
+    if (lastOfGroup) list.append(groupRow(g, doc.layers.filter(x => x.group === g.id).length));
   }
   const active = doc.layers.find(l => l.active);
   if (active && !layerOpacityDragging) {
@@ -1120,16 +1188,16 @@ function renderLayers() {
   clearTimeout(layerThumbTimer);
   layerThumbTimer = setTimeout(() => call('layerThumbs', { size: 128 }), 120);
 }
+const maskThumbs = new Map();
 function onLayerThumbs(thumbs) {
-  for (const t of thumbs) layerThumbs.set(t.id, t.bitmap);
+  for (const t of thumbs) {
+    layerThumbs.set(t.id, t.bitmap);
+    if (t.mask) maskThumbs.set(t.id, t.mask); else maskThumbs.delete(t.id);
+  }
+  const paint = (c, bmp) => { if (!c || !bmp) return; c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0); };
   for (const row of $$('.layer-row')) {
-    const idx = [...row.parentNode.children].indexOf(row);
-    const l = doc.layers[idx];
-    const bmp = l && layerThumbs.get(l.id);
-    if (!bmp) continue;
-    const c = row.querySelector('canvas');
-    c.width = bmp.width; c.height = bmp.height;
-    c.getContext('2d').drawImage(bmp, 0, 0);
+    paint(row.querySelector('.lthumb canvas'), layerThumbs.get(row.dataset.id));
+    paint(row.querySelector('.lmask canvas'), maskThumbs.get(row.dataset.id));
   }
 }
 $('#layer-add').addEventListener('click', () => call('layer', { op: 'add' }));
@@ -1174,6 +1242,15 @@ function layerMenu(l, index, x, y) {
     <label>Alpha lock <input type="checkbox" data-op="alphaLock"${l.alphaLock ? ' checked' : ''}></label>
     <label>Clip to layer below <input type="checkbox" data-op="clipping"${l.clipping ? ' checked' : ''}></label>
     <hr>
+    ${l.hasMask
+      ? `<button data-op="editMask">${l.editingMask ? 'Paint on the layer' : 'Paint on the mask'}</button>
+         <button data-op="applyMask">Apply mask</button>
+         <button data-op="deleteMask">Delete mask</button>`
+      : '<button data-op="addMask" title="Hide parts of the layer without erasing them">Add mask</button>'}
+    <hr>
+    ${index > 0 ? '<button data-op="groupBelow">Group with layer below</button>' : ''}
+    ${l.group ? '<button data-op="leaveGroup">Take out of group</button>' : '<button data-op="group">New group from layer</button>'}
+    <hr>
     <button data-op="up"${index >= n - 1 ? ' disabled' : ''}>Move up</button>
     <button data-op="down"${index <= 0 ? ' disabled' : ''}>Move down</button>
     <button data-op="duplicate">Duplicate</button>
@@ -1196,6 +1273,13 @@ function layerMenu(l, index, x, y) {
     if (op === 'mergeDown') call('layer', { op: 'mergeDown', args: [l.id] });
     if (op === 'clear') call('layer', { op: 'clear', args: [l.id] });
     if (op === 'delete') call('layer', { op: 'delete', args: [l.id] });
+    if (op === 'addMask') { call('layer', { op: 'addMask', args: [l.id] }); toast('Paint black on the mask to hide, white to bring back.', 3500); }
+    if (op === 'editMask') call('layer', { op: 'editMask', args: [!l.editingMask] });
+    if (op === 'applyMask') call('layer', { op: 'applyMask', args: [l.id] });
+    if (op === 'deleteMask') call('layer', { op: 'deleteMask', args: [l.id] });
+    if (op === 'groupBelow') call('layer', { op: 'group', args: [l.id, true] });
+    if (op === 'group') call('layer', { op: 'group', args: [l.id, false] });
+    if (op === 'leaveGroup') call('layer', { op: 'leaveGroup', args: [l.id] });
   };
   const range = menu.querySelector('[data-op=opacity]');
   range.addEventListener('input', () => {
@@ -1237,6 +1321,11 @@ $('#p-actions').addEventListener('click', async (e) => {
   if (act === 'png') call('export', { type: 'image/png', withPaper: true });
   if (act === 'png-clear') call('export', { type: 'image/png', withPaper: false });
   if (act === 'jpg') call('export', { type: 'image/jpeg', withPaper: true });
+  if (act === 'psd') { toast('Making the Photoshop file…', 4000); call('exportPsd'); }
+  if (act === 'timelapse') openTimelapse();
+  if (act === 'pressure') openPressure();
+  if (act === 'text') openTextDialog();
+  if (act === 'reference') $('#ref-file').click();
   if (act === 'rename') {
     const name = await prompt('Rename drawing', current?.name);
     if (name && current) {
@@ -1300,16 +1389,17 @@ let pendingExportName = null;
 function exportName(type) {
   const base = (pendingExportName || current?.name || 'Drawing').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Drawing';
   pendingExportName = null;
-  return base + (type === 'image/jpeg' ? '.jpg' : '.png');
+  return base + (type === 'image/jpeg' ? '.jpg' : type === 'image/vnd.adobe.photoshop' ? '.psd' : '.png');
 }
 async function saveBlob(blob, name) {
   if (window.showSaveFilePicker) {
     try {
       const jpeg = blob.type === 'image/jpeg';
+      const psd = blob.type === 'image/vnd.adobe.photoshop';
       const handle = await showSaveFilePicker({
         suggestedName: name,
         startIn: 'pictures',
-        types: [{ description: jpeg ? 'JPEG picture' : 'PNG picture', accept: { [blob.type]: [jpeg ? '.jpg' : '.png'] } }],
+        types: [{ description: psd ? 'Photoshop file' : jpeg ? 'JPEG picture' : 'PNG picture', accept: { [blob.type]: [psd ? '.psd' : jpeg ? '.jpg' : '.png'] } }],
       });
       const w = await handle.createWritable();
       await w.write(blob);
@@ -1366,7 +1456,7 @@ function penTilt(e) {
 function pointFrom(e) {
   const [x, y] = toDoc(e.clientX, e.clientY);
   const pen = e.pointerType === 'pen';
-  let p = pen ? e.pressure : 1;
+  let p = pen ? pressureCurve(e.pressure) : 1;
   if (pen && p === 0) p = 0.02;
   const [tilt, az] = pen ? penTilt(e) : [0, 0];
   return [x, y, clamp(p, 0, 1), tilt, az, e.timeStamp];
@@ -1400,12 +1490,20 @@ function beginPaint(e) {
   if (paintTools.includes(tool) && tool !== 'eraser' && !isEraserTip(e) && tool !== 'smudge' && settings.recent[0] !== (settings.color | 0)) {
     pushRecent(settings.color);
   }
-  call('begin', { params: strokeParams(e), point: pointFrom(e) });
+  input.onRuler = false;
+  if (rulerOn() && paintTools.includes(tool)) {
+    const [x, y] = toDoc(e.clientX, e.clientY);
+    input.onRuler = rulerDistance(x, y) * view.s < RULER_PULL;
+  }
+  call('begin', { params: strokeParams(e), point: paintPoint(e) });
   armHold();
 }
 
+function paintPoint(e) { return input.onRuler ? onRuler(pointFrom(e)) : pointFrom(e); }
+
 function armHold() {
   clearTimeout(input.holdTimer);
+  if (input.onRuler) return; // already straight
   input.holdTimer = setTimeout(() => {
     if (input.mode === 'paint' && !input.snapped) call('quickShape');
   }, 520);
@@ -1416,7 +1514,7 @@ function movePaint(e) {
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
   const list = events.length ? events : [e];
   const pts = [];
-  for (const ev of list) pts.push(...pointFrom(ev));
+  for (const ev of list) pts.push(...paintPoint(ev));
   call('move', { points: pts });
   if (Math.hypot(e.clientX - input.holdAt[0], e.clientY - input.holdAt[1]) > 4) {
     input.holdAt = [e.clientX, e.clientY];
@@ -1495,6 +1593,7 @@ stage.addEventListener('pointerdown', (e) => {
   const pen = e.pointerType === 'pen';
   if (pen && !settings.stylusSeen) { settings.stylusSeen = true; saveSettings(); }
   input.hover = pen || e.pointerType === 'mouse' ? [e.clientX, e.clientY] : null;
+  if (!(e.pointerType === 'touch' && input.touches.size > 0) && !xf && !adjusting && grabRuler(e)) return;
 
   if (e.pointerType === 'touch') {
     input.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1507,6 +1606,10 @@ stage.addEventListener('pointerdown', (e) => {
         endPaint(e.timeStamp - input.start.t < 300);
       }
       if (input.mode === 'dropper') $('#loupe').hidden = true;
+      if (input.mode === 'select') { selDraft = null; }
+      if (input.mode === 'shape') { shapeDraft = null; }
+      if (input.mode === 'liquify') endLiquify();
+      if (input.mode === 'xf') endXfDrag();
       input.mode = 'gesture';
       startGesture();
       return;
@@ -1524,6 +1627,14 @@ stage.addEventListener('pointerdown', (e) => {
     return;
   }
   if (input.mode === 'paint') endPaint(false);
+  if (adjusting) return;
+  if (tool === 'move') {
+    if (xf) beginXfDrag(e);
+    return;
+  }
+  if (tool === 'select' && !isBarrel(e)) { beginSelect(e); return; }
+  if (tool === 'liquify' && !isBarrel(e) && !input.alt) { beginLiquify(e); return; }
+  if (tool === 'shape' && !isBarrel(e) && !input.alt) { beginShape(e); return; }
 
   if (tool === 'dropper' || input.alt || isBarrel(e)) {
     input.mode = 'dropper';
@@ -1561,6 +1672,11 @@ stage.addEventListener('pointermove', (e) => {
   if (e.pointerId !== input.pointerId) return;
   if (input.mode === 'paint') { movePaint(e); drawOverlay(); }
   else if (input.mode === 'dropper') sampleAt(e, false);
+  else if (input.mode === 'select') moveSelect(e);
+  else if (input.mode === 'xf') moveXfDrag(e);
+  else if (input.mode === 'liquify') { moveLiquify(e); drawOverlay(); }
+  else if (input.mode === 'shape') moveShape(e);
+  else if (input.mode === 'ruler') moveRuler(e);
 });
 
 function pointerEnd(e, cancelled) {
@@ -1572,8 +1688,8 @@ function pointerEnd(e, cancelled) {
       if (input.touches.size === 0) {
         const tap = input.tap;
         if (!cancelled && tap && e.timeStamp - tap.t < 350 && tap.moved < 14) {
-          if (tap.max === 2) { call('undo'); toast('Undo', 900); }
-          if (tap.max === 3) { call('redo'); toast('Redo', 900); }
+          if (tap.max === 2) { undo(); toast('Undo', 900); }
+          if (tap.max === 3) { redo(); toast('Redo', 900); }
         }
         input.mode = null;
         input.gesture = null;
@@ -1589,6 +1705,11 @@ function pointerEnd(e, cancelled) {
   }
   if (e.pointerId !== input.pointerId) return;
   if (input.mode === 'paint') endPaint(false);
+  else if (input.mode === 'select') endSelect(e, cancelled);
+  else if (input.mode === 'xf') endXfDrag();
+  else if (input.mode === 'liquify') endLiquify();
+  else if (input.mode === 'shape') endShape(cancelled);
+  else if (input.mode === 'ruler') { input.mode = null; input.pointerId = null; }
   else if (input.mode === 'dropper') { sampleAt(e, true); input.mode = null; input.pointerId = null; }
   else if (input.mode === 'fill') {
     if (!cancelled && Math.hypot(e.clientX - input.start.x, e.clientY - input.start.y) < 12) {
@@ -1623,6 +1744,7 @@ stage.addEventListener('wheel', (e) => {
 function drawOverlay() {
   octx.clearRect(0, 0, innerWidth, innerHeight);
   if (!current) return;
+  drawGrid();
   if (settings.symmetry) {
     octx.save();
     octx.strokeStyle = 'rgba(111,168,255,.75)';
@@ -1636,11 +1758,16 @@ function drawOverlay() {
     if (settings.symmetry === 2 || settings.symmetry === 3) line(0, doc.height / 2, doc.width, doc.height / 2);
     octx.restore();
   }
+  drawAnts();
+  drawSelDraft();
+  drawTransform();
+  drawRuler();
+  drawShapeDraft();
   const showSize = sliderPreview;
   const at = showSize ? [innerWidth / 2, innerHeight / 2] : input.hover;
   if (!at || !brushes.length) return;
-  if (!showSize && !(paintTools.includes(tool)) ) return;
-  const r = Math.max(1.5, sizeFor(tool) * view.s / 2);
+  if (!showSize && !(paintTools.includes(tool) || tool === 'liquify')) return;
+  const r = Math.max(1.5, (tool === 'liquify' ? settings.liquify.size : sizeFor(tool)) * view.s / 2);
   octx.beginPath();
   octx.arc(at[0], at[1], r, 0, Math.PI * 2);
   octx.lineWidth = 2.5; octx.strokeStyle = 'rgba(0,0,0,.35)'; octx.stroke();
@@ -1653,12 +1780,36 @@ document.addEventListener('keydown', (e) => {
   if (e.target.matches('input, select, textarea')) return;
   if (!current || $('#canvas-screen').hidden) return;
   const k = e.key.toLowerCase();
-  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); call(e.shiftKey ? 'redo' : 'undo'); return; }
-  if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); call('redo'); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); call('select', { op: 'all' }); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'd') { e.preventDefault(); call('select', { op: 'none' }); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') { e.preventDefault(); call('select', { op: 'invert' }); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 't') { e.preventDefault(); startMoveTool(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'j') { e.preventDefault(); call('select', { op: 'copy' }); return; }
+  if ((e.ctrlKey || e.metaKey) && k === "'") { e.preventDefault(); toggleGrid(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); call('saveNow'); toast('Saved', 900); return; }
   if (e.ctrlKey || e.metaKey) return;
   if (k === ' ') { input.space = true; stage.classList.add('space'); e.preventDefault(); return; }
   if (k === 'alt') { input.alt = true; e.preventDefault(); return; }
+  if (xf && (k.startsWith('arrow') || k === 'enter' || k === 'escape')) {
+    e.preventDefault();
+    if (k === 'enter') finishTransform(true);
+    else if (k === 'escape') finishTransform(false);
+    else {
+      const n = e.shiftKey ? 10 : 1;
+      if (k === 'arrowleft') xf.ox -= n; if (k === 'arrowright') xf.ox += n;
+      if (k === 'arrowup') xf.oy -= n; if (k === 'arrowdown') xf.oy += n;
+      drawOverlay(); xfSend();
+    }
+    return;
+  }
+  if (adjusting && (k === 'enter' || k === 'escape')) { endAdjust(k === 'enter'); return; }
+  if ((k === 'delete' || k === 'backspace') && doc.hasSelection) { call('select', { op: 'clear' }); return; }
+  if (k === 'm') { finishTransform(true); tool = 'select'; updateToolUi(); return; }
+  if (k === 'v') { startMoveTool(); return; }
+  if (k === 'r') { toggleRuler(); return; }
+  if (k === 'u') { finishTransform(true); tool = 'shape'; updateToolUi(); return; }
   if (k === 'b') selectTool('brush');
   else if (k === 's') selectTool('smudge');
   else if (k === 'e') selectTool('eraser');
@@ -1705,6 +1856,1251 @@ $('#install-btn').addEventListener('click', async () => {
 addEventListener('appinstalled', () => { $('#install-btn').hidden = true; });
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ---- Selections ------------------------------------------------------------------------------
+// The worker sends a coarse coverage grid; marching squares turn it into outline segments in
+// canvas pixels, drawn as animated "marching ants" at any zoom.
+
+let selAnts = null;        // Float32Array of x0, y0, x1, y1 segments in canvas pixels
+let selDraft = null;       // { shape, mode, points: [x, y, ...] } while dragging out a selection
+let antsPhase = 0;
+let antsTimer = 0;
+
+function onSelection(m) {
+  selAnts = m.grid ? marchingSquares(m.grid, m.w, m.h, m.step) : null;
+  doc.hasSelection = !!m.grid;
+  updateSelectionUi();
+  animateAnts();
+  drawOverlay();
+}
+
+function marchingSquares(grid, w, h, step) {
+  const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : grid[y * w + x];
+  const out = [];
+  const T = 128;
+  const half = step / 2;
+  // Interpolated crossing between two grid points along an edge.
+  const lerp = (a, b) => (T - a) / ((b - a) || 1);
+  for (let y = -1; y < h; y++) {
+    for (let x = -1; x < w; x++) {
+      const a = at(x, y), b = at(x + 1, y), c = at(x + 1, y + 1), d = at(x, y + 1);
+      const k = (a >= T ? 8 : 0) | (b >= T ? 4 : 0) | (c >= T ? 2 : 0) | (d >= T ? 1 : 0);
+      if (k === 0 || k === 15) continue;
+      const top = [x + lerp(a, b), y], right = [x + 1, y + lerp(b, c)];
+      const bottom = [x + lerp(d, c), y + 1], left = [x, y + lerp(a, d)];
+      const seg = (p, q) => out.push(p[0] * step + half, p[1] * step + half, q[0] * step + half, q[1] * step + half);
+      switch (k) {
+        case 1: case 14: seg(left, bottom); break;
+        case 2: case 13: seg(bottom, right); break;
+        case 3: case 12: seg(left, right); break;
+        case 4: case 11: seg(top, right); break;
+        case 5: seg(left, top); seg(bottom, right); break;
+        case 6: case 9: seg(top, bottom); break;
+        case 7: case 8: seg(left, top); break;
+        case 10: seg(top, right); seg(left, bottom); break;
+      }
+    }
+  }
+  return new Float32Array(out);
+}
+
+function animateAnts() {
+  clearTimeout(antsTimer);
+  if (!selAnts || !selAnts.length || document.hidden) return;
+  antsTimer = setTimeout(() => {
+    antsPhase = (antsPhase + 1) % 16;
+    if (!input.mode || input.mode === 'select') drawOverlay();
+    animateAnts();
+  }, 90);
+}
+
+function drawAnts() {
+  if (!selAnts || !selAnts.length || xf) return;
+  octx.save();
+  octx.beginPath();
+  for (let i = 0; i < selAnts.length; i += 4) {
+    const p = toScreen(selAnts[i], selAnts[i + 1]), q = toScreen(selAnts[i + 2], selAnts[i + 3]);
+    octx.moveTo(p[0], p[1]);
+    octx.lineTo(q[0], q[1]);
+  }
+  octx.lineWidth = 1.5;
+  octx.strokeStyle = 'rgba(0,0,0,.85)';
+  octx.setLineDash([]);
+  octx.stroke();
+  octx.strokeStyle = '#fff';
+  octx.setLineDash([5, 5]);
+  octx.lineDashOffset = -antsPhase;
+  octx.stroke();
+  octx.restore();
+}
+
+function drawSelDraft() {
+  if (!selDraft) return;
+  const pts = draftPolygon();
+  if (pts.length < 4) return;
+  octx.save();
+  octx.beginPath();
+  for (let i = 0; i < pts.length; i += 2) {
+    const p = toScreen(pts[i], pts[i + 1]);
+    if (i === 0) octx.moveTo(p[0], p[1]); else octx.lineTo(p[0], p[1]);
+  }
+  octx.closePath();
+  octx.fillStyle = selDraft.mode === 2 ? 'rgba(255,107,107,.12)' : 'rgba(111,168,255,.14)';
+  octx.fill();
+  octx.lineWidth = 1.5;
+  octx.strokeStyle = selDraft.mode === 2 ? '#ff8b8b' : '#6fa8ff';
+  octx.setLineDash([6, 4]);
+  octx.stroke();
+  octx.restore();
+}
+
+function draftPolygon(d = selDraft) {
+  if (d.shape === 'lasso') return d.points;
+  const [x0, y0] = d.points, [x1, y1] = d.points.slice(-2);
+  if (d.shape === 'rect') {
+    // Whole pixels, so moving a boxed area leaves no half-lifted edge behind.
+    const l = Math.round(Math.min(x0, x1)), r = Math.round(Math.max(x0, x1));
+    const t = Math.round(Math.min(y0, y1)), b = Math.round(Math.max(y0, y1));
+    return [l, t, r, t, r, b, l, b];
+  }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = Math.abs(x1 - x0) / 2, ry = Math.abs(y1 - y0) / 2;
+  const out = [];
+  const n = 96;
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; out.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry); }
+  return out;
+}
+
+function selModeFor(e) {
+  if (e.shiftKey) return 1;
+  if (e.altKey || input.alt) return 2;
+  return settings.selMode | 0;
+}
+
+function beginSelect(e) {
+  input.mode = 'select';
+  input.pointerId = e.pointerId;
+  const [x, y] = toDoc(e.clientX, e.clientY);
+  input.start = { x: e.clientX, y: e.clientY, far: 0 };
+  selDraft = { shape: settings.selShape, mode: selModeFor(e), points: [x, y] };
+}
+
+function moveSelect(e) {
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  const list = events.length ? events : [e];
+  for (const ev of list) {
+    const [x, y] = toDoc(ev.clientX, ev.clientY);
+    input.start.far = Math.max(input.start.far, Math.hypot(ev.clientX - input.start.x, ev.clientY - input.start.y));
+    if (selDraft.shape === 'lasso') {
+      const n = selDraft.points.length;
+      if (Math.hypot(x - selDraft.points[n - 2], y - selDraft.points[n - 1]) * view.s < 2) continue;
+      selDraft.points.push(x, y);
+    } else {
+      selDraft.points = [selDraft.points[0], selDraft.points[1], x, y];
+    }
+  }
+  drawOverlay();
+}
+
+function endSelect(e, cancelled) {
+  const d = selDraft;
+  selDraft = null;
+  input.mode = null;
+  input.pointerId = null;
+  if (cancelled || !d) { drawOverlay(); return; }
+  const moved = Math.max(input.start.far, Math.hypot(e.clientX - input.start.x, e.clientY - input.start.y));
+  if (d.shape === 'auto' || moved < 6) {
+    const [x, y] = toDoc(e.clientX, e.clientY);
+    if (d.shape === 'auto' && x >= 0 && y >= 0 && x < doc.width && y < doc.height) {
+      call('select', { op: 'similar', x: Math.floor(x), y: Math.floor(y), tolerance: settings.fillTolerance, allLayers: settings.fillAll, mode: d.mode });
+    } else if (moved < 6 && doc.hasSelection && d.mode === 0) {
+      // A tap with a drawing shape clears the selection, like Procreate.
+      call('select', { op: 'none' });
+    }
+    drawOverlay();
+    return;
+  }
+  const pts = draftPolygon(d);
+  if (pts.length >= 6) call('select', { op: 'polygon', points: new Float32Array(pts), mode: d.mode });
+  drawOverlay();
+}
+
+function updateSelectionUi() {
+  for (const b of $$('#sel-shapes button')) b.classList.toggle('active', b.dataset.shape === settings.selShape);
+  for (const b of $$('#sel-modes button')) b.classList.toggle('active', +b.dataset.mode === (settings.selMode | 0));
+  for (const b of $$('#sel-bar [data-sel]')) b.disabled = b.dataset.sel !== 'all' && !doc.hasSelection;
+}
+$('#sel-shapes').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  settings.selShape = b.dataset.shape; saveSettings(); updateSelectionUi();
+});
+$('#sel-modes').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  settings.selMode = +b.dataset.mode; saveSettings(); updateSelectionUi();
+});
+$('#sel-bar').addEventListener('click', (e) => {
+  const op = e.target.closest('[data-sel]')?.dataset.sel;
+  if (!op) return;
+  selectionAction(op);
+});
+function selectionAction(op) {
+  if (op === 'fill') call('select', { op: 'fill', color: settings.color });
+  else call('select', { op });
+  if (op === 'copy' || op === 'cut') toast(op === 'copy' ? 'Copied onto a new layer' : 'Cut onto a new layer', 1400);
+}
+
+// ---- Move and transform ----------------------------------------------------------------------
+
+let xf = null;          // { rect, cx, cy, w, h, ox, oy, sx, sy, rot, drag }
+let xfSerial = 0, xfBusy = false, xfPending = false;
+
+function startMoveTool() {
+  if (xf) return;
+  if (adjusting) return;
+  call('transformBegin');
+}
+
+function onTransformStarted(m) {
+  if (!m.rect) {
+    toast('There is nothing to move on this layer.');
+    if (tool === 'move') { tool = lastPaintTool; updateToolUi(); }
+    return;
+  }
+  const [l, t, r, b] = m.rect;
+  xf = { rect: m.rect, cx: (l + r) / 2, cy: (t + b) / 2, w: Math.max(1, r - l), h: Math.max(1, b - t), ox: 0, oy: 0, sx: 1, sy: 1, rot: 0, drag: null };
+  tool = 'move';
+  updateToolUi();
+  drawOverlay();
+}
+
+function xfMatrix(x = xf) {
+  const cs = Math.cos(x.rot), sn = Math.sin(x.rot);
+  const a = cs * x.sx, b = sn * x.sx, c = -sn * x.sy, d = cs * x.sy;
+  const tx = x.cx + x.ox - (a * x.cx + c * x.cy), ty = x.cy + x.oy - (b * x.cx + d * x.cy);
+  return [a, b, c, d, tx, ty];
+}
+const xfMap = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+const rotate = (x, y, r) => [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)];
+
+function xfSend() {
+  if (!xf) return;
+  if (xfBusy) { xfPending = true; return; }
+  xfBusy = true;
+  xfPending = false;
+  call('transformPreview', { m: xfMatrix(), quality: +$('#xf-quality').value, serial: ++xfSerial });
+}
+function onTransformed() {
+  xfBusy = false;
+  if (xfPending) xfSend();
+}
+
+/** Handles in canvas pixels: 4 corners, 4 edges, and the rotation knob. */
+function xfHandles() {
+  const m = xfMatrix();
+  const { cx, cy, w, h } = xf;
+  const hs = [];
+  for (const [ux, uy] of [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]) {
+    hs.push({ ux, uy, p: xfMap(m, cx + ux * w / 2, cy + uy * h / 2) });
+  }
+  return hs;
+}
+
+function xfRotateKnob() {
+  // 36 screen pixels outside the top edge, whichever way the box faces.
+  const m = xfMatrix();
+  const top = toScreen(...xfMap(m, xf.cx, xf.cy - xf.h / 2));
+  const mid = toScreen(...xfMap(m, xf.cx, xf.cy));
+  let dx = top[0] - mid[0], dy = top[1] - mid[1];
+  const len = Math.hypot(dx, dy) || 1;
+  dx /= len; dy /= len;
+  return [top[0] + dx * 36, top[1] + dy * 36];
+}
+
+function drawTransform() {
+  if (!xf) return;
+  const hs = xfHandles();
+  const corners = [0, 2, 4, 6].map(i => toScreen(...hs[i].p));
+  octx.save();
+  octx.beginPath();
+  corners.forEach((p, i) => (i ? octx.lineTo(p[0], p[1]) : octx.moveTo(p[0], p[1])));
+  octx.closePath();
+  octx.lineWidth = 2.5; octx.strokeStyle = 'rgba(0,0,0,.4)'; octx.stroke();
+  octx.lineWidth = 1.2; octx.strokeStyle = '#6fa8ff'; octx.stroke();
+  const top = toScreen(...hs[1].p), knob = xfRotateKnob();
+  octx.beginPath(); octx.moveTo(top[0], top[1]); octx.lineTo(knob[0], knob[1]); octx.stroke();
+  const dot = (p, r, fill) => {
+    octx.beginPath(); octx.arc(p[0], p[1], r, 0, Math.PI * 2);
+    octx.fillStyle = fill; octx.fill();
+    octx.lineWidth = 1.5; octx.strokeStyle = '#1b2a44'; octx.stroke();
+  };
+  for (const h of hs) dot(toScreen(...h.p), h.ux && h.uy ? 8 : 6, '#fff');
+  dot(knob, 8, '#6fa8ff');
+  octx.restore();
+}
+
+function xfHit(e) {
+  const pt = [e.clientX, e.clientY];
+  const near = (p, r) => Math.hypot(p[0] - pt[0], p[1] - pt[1]) <= r;
+  const slop = e.pointerType === 'touch' ? 26 : 16;
+  if (near(xfRotateKnob(), slop)) return { kind: 'rotate' };
+  const hs = xfHandles();
+  // Corners first, so they win where they overlap the edges on small boxes.
+  for (const h of [...hs].sort((a, b) => (b.ux && b.uy) - (a.ux && a.uy))) {
+    if (near(toScreen(...h.p), slop)) return { kind: 'scale', ux: h.ux, uy: h.uy };
+  }
+  return { kind: 'move' };
+}
+
+function beginXfDrag(e) {
+  input.mode = 'xf';
+  input.pointerId = e.pointerId;
+  const hit = xfHit(e);
+  const p = toDoc(e.clientX, e.clientY);
+  xf.drag = { ...hit, start: p, from: { ...xf, drag: null } };
+}
+
+function moveXfDrag(e) {
+  const d = xf.drag;
+  if (!d) return;
+  const p = toDoc(e.clientX, e.clientY);
+  const f = d.from;
+  if (d.kind === 'move') {
+    xf.ox = f.ox + p[0] - d.start[0];
+    xf.oy = f.oy + p[1] - d.start[1];
+  } else if (d.kind === 'rotate') {
+    const c = [f.cx + f.ox, f.cy + f.oy];
+    let r = f.rot + Math.atan2(p[1] - c[1], p[0] - c[0]) - Math.atan2(d.start[1] - c[1], d.start[0] - c[0]);
+    const step = Math.PI / 12;
+    const snap = Math.round(r / step) * step;
+    if (Math.abs(r - snap) < 0.05 && !e.shiftKey) r = snap;
+    xf.rot = r;
+  } else {
+    const { ux, uy } = d;
+    const fm = xfMatrix(f);
+    // The opposite corner or edge stays put.
+    const anchor = xfMap(fm, f.cx - ux * f.w / 2, f.cy - uy * f.h / 2);
+    const local = rotate(p[0] - anchor[0], p[1] - anchor[1], -f.rot);
+    let sx = f.sx, sy = f.sy;
+    if (ux) sx = local[0] / (ux * f.w);
+    if (uy) sy = local[1] / (uy * f.h);
+    const uniform = ux && uy && (settings.xfUniform !== false) !== e.shiftKey;
+    if (uniform) {
+      // Keep the proportions: scale by how far along the box's diagonal the pen went.
+      const q = [ux * f.sx * f.w, uy * f.sy * f.h];
+      const k = (local[0] * q[0] + local[1] * q[1]) / (q[0] * q[0] + q[1] * q[1]);
+      sx = f.sx * k; sy = f.sy * k;
+    }
+    const tiny = 0.01;
+    if (Math.abs(sx) < tiny) sx = sx < 0 ? -tiny : tiny;
+    if (Math.abs(sy) < tiny) sy = sy < 0 ? -tiny : tiny;
+    xf.sx = sx; xf.sy = sy;
+    const off = rotate(ux * sx * f.w / 2, uy * sy * f.h / 2, f.rot);
+    xf.ox = anchor[0] + off[0] - f.cx;
+    xf.oy = anchor[1] + off[1] - f.cy;
+  }
+  drawOverlay();
+  xfSend();
+}
+
+function endXfDrag() {
+  if (xf) xf.drag = null;
+  input.mode = null;
+  input.pointerId = null;
+}
+
+function xfAction(op) {
+  if (!xf) return;
+  if (op === 'flipH') xf.sx = -xf.sx;
+  if (op === 'flipV') xf.sy = -xf.sy;
+  if (op === 'rot') xf.rot += Math.PI / 2;
+  if (op === 'reset') Object.assign(xf, { ox: 0, oy: 0, sx: 1, sy: 1, rot: 0 });
+  if (op === 'fit') {
+    const k = Math.min(doc.width / xf.w, doc.height / xf.h);
+    Object.assign(xf, { sx: Math.sign(xf.sx) * k, sy: Math.sign(xf.sy) * k, rot: 0, ox: doc.width / 2 - xf.cx, oy: doc.height / 2 - xf.cy });
+  }
+  if (op === 'done') return finishTransform(true);
+  if (op === 'cancel') return finishTransform(false);
+  drawOverlay();
+  xfSend();
+}
+
+function finishTransform(commit) {
+  if (!xf) return;
+  if (commit) call('transformCommit', { m: xfMatrix(), quality: +$('#xf-quality').value });
+  else call('transformCancel');
+  xf = null;
+  xfBusy = false;
+  xfPending = false;
+  if (tool === 'move') tool = lastPaintTool;
+  updateToolUi();
+  drawOverlay();
+}
+
+$('#xf-bar').addEventListener('click', (e) => {
+  const op = e.target.closest('[data-xf]')?.dataset.xf;
+  if (op) xfAction(op);
+});
+$('#xf-uniform').addEventListener('click', () => {
+  settings.xfUniform = settings.xfUniform === false;
+  saveSettings();
+  updateToolUi();
+});
+$('#xf-quality').addEventListener('change', () => xfSend());
+
+// ---- Adjustments -----------------------------------------------------------------------------
+
+const ADJUSTMENTS = [
+  { id: 'HUE_SATURATION', name: 'Hue, saturation, lightness', fields: [
+    { key: 'a', label: 'Hue', min: -1, max: 1, def: 0, fmt: v => Math.round(v * 180) + '°' },
+    { key: 'b', label: 'Saturation', min: -1, max: 1, def: 0, fmt: pct },
+    { key: 'c', label: 'Lightness', min: -1, max: 1, def: 0, fmt: pct }] },
+  { id: 'BRIGHTNESS_CONTRAST', name: 'Brightness and contrast', fields: [
+    { key: 'a', label: 'Brightness', min: -1, max: 1, def: 0, fmt: pct },
+    { key: 'b', label: 'Contrast', min: -1, max: 1, def: 0, fmt: pct }] },
+  { id: 'LEVELS', name: 'Levels', fields: [
+    { key: 'a', label: 'Shadows', min: 0, max: 0.9, def: 0, fmt: v => Math.round(v * 255) },
+    { key: 'b', label: 'Highlights', min: 0.1, max: 1, def: 1, fmt: v => Math.round(v * 255) },
+    { key: 'c', label: 'Midtones', min: -1, max: 1, def: 0, fmt: pct }] },
+  { id: 'COLOR_BALANCE', name: 'Colour balance', fields: [
+    { key: 'a', label: 'Cool ↔ warm', min: -1, max: 1, def: 0, fmt: pct },
+    { key: 'b', label: 'Green ↔ magenta', min: -1, max: 1, def: 0, fmt: pct },
+    { key: 'c', label: 'Blue ↔ yellow', min: -1, max: 1, def: 0, fmt: pct }] },
+  { id: 'BLUR', name: 'Gaussian blur', fields: [
+    { key: 'a', label: 'Radius', min: 0, max: 1, def: 0.2, fmt: v => (Math.pow(v, 1.6) * 120).toFixed(1) + ' px' }] },
+  { id: 'SHARPEN', name: 'Sharpen', fields: [
+    { key: 'a', label: 'Amount', min: 0, max: 1, def: 0.4, fmt: pct },
+    { key: 'b', label: 'Radius', min: 0, max: 1, def: 0.15, fmt: v => (0.5 + v * 9.5).toFixed(1) + ' px' }] },
+  { id: 'NOISE', name: 'Noise', fields: [
+    { key: 'a', label: 'Amount', min: 0, max: 1, def: 0.25, fmt: pct }] },
+  { id: 'INVERT', name: 'Invert colours', fields: [] },
+];
+function pct(v) { return Math.round(v * 100) + '%'; }
+
+let adjusting = null;   // { spec, values }
+let adjSerial = 0, adjBusy = false, adjPending = false;
+
+function openAdjustMenu() {
+  const menu = $('#adjust-menu');
+  menu.innerHTML = ADJUSTMENTS.map(a => `<button data-adj="${a.id}">${a.name}</button>`).join('') +
+    '<hr><button data-adj="LIQUIFY">Liquify</button>';
+  menu.onclick = (e) => {
+    const id = e.target.closest('button')?.dataset.adj;
+    if (!id) return;
+    closeMenu();
+    if (id === 'LIQUIFY') { finishTransform(true); selectTool('liquify'); return; }
+    startAdjust(id);
+  };
+  const r = $('#b-adjust').getBoundingClientRect();
+  openMenu(menu, r.left, r.bottom + 6);
+}
+$('#b-adjust').addEventListener('click', () => { closePanels(); openAdjustMenu(); });
+
+async function startAdjust(id) {
+  if (adjusting) return;
+  finishTransform(true);
+  const spec = ADJUSTMENTS.find(a => a.id === id);
+  const started = waitFor('adjustStarted');
+  call('adjustBegin', { kind: id });
+  const r = await started;
+  if (!r.ok) { toast('There is nothing on this layer to adjust.'); return; }
+  adjusting = { spec, values: Object.fromEntries(spec.fields.map(f => [f.key, f.def])) };
+  $('#adjust-title').textContent = spec.name;
+  $('#adjust-hint').textContent = doc.editingMask ? 'on the mask' : (doc.hasSelection ? 'on the selection' : 'on ' + (doc.layers.find(l => l.active)?.name || 'this layer'));
+  renderAdjust();
+  $('#p-adjust').hidden = false;
+  adjSend();
+}
+
+function renderAdjust() {
+  const body = $('#adjust-body');
+  body.textContent = '';
+  if (!adjusting.spec.fields.length) { body.innerHTML = '<p class="hint">Apply to keep it, or cancel.</p>'; return; }
+  for (const f of adjusting.spec.fields) {
+    const row = document.createElement('label');
+    row.className = 'studio-field';
+    row.innerHTML = `<span>${f.label}</span><input type="range" min="${f.min}" max="${f.max}" step="0.005"><output></output>`;
+    const inp = row.querySelector('input'), out = row.querySelector('output');
+    inp.value = adjusting.values[f.key];
+    out.textContent = f.fmt(+inp.value);
+    inp.addEventListener('input', () => { adjusting.values[f.key] = +inp.value; out.textContent = f.fmt(+inp.value); adjSend(); });
+    inp.addEventListener('dblclick', () => { inp.value = f.def; inp.dispatchEvent(new Event('input')); });
+    body.append(row);
+  }
+}
+
+function adjSend() {
+  if (!adjusting) return;
+  if (adjBusy) { adjPending = true; return; }
+  adjBusy = true;
+  adjPending = false;
+  const v = adjusting.values;
+  call('adjustPreview', { a: v.a ?? 0, b: v.b ?? 0, c: v.c ?? 0, serial: ++adjSerial });
+}
+function onAdjusted() { adjBusy = false; if (adjPending) adjSend(); }
+
+function endAdjust(apply) {
+  if (!adjusting) return;
+  if (apply) {
+    // Make sure the last slider position is what gets applied.
+    const v = adjusting.values;
+    call('adjustPreview', { a: v.a ?? 0, b: v.b ?? 0, c: v.c ?? 0, serial: ++adjSerial });
+    call('adjustCommit');
+  } else {
+    call('adjustCancel');
+  }
+  adjusting = null;
+  adjBusy = false;
+  adjPending = false;
+  $('#p-adjust').hidden = true;
+}
+$('#adjust-apply').addEventListener('click', () => endAdjust(true));
+$('#adjust-cancel').addEventListener('click', () => endAdjust(false));
+$('#adjust-reset').addEventListener('click', () => {
+  if (!adjusting) return;
+  for (const f of adjusting.spec.fields) adjusting.values[f.key] = f.def;
+  renderAdjust();
+  adjSend();
+});
+
+// ---- Liquify ---------------------------------------------------------------------------------
+
+const LIQUIFY_MODES = [['PUSH', 'Push'], ['TWIRL_RIGHT', 'Twirl ↻'], ['TWIRL_LEFT', 'Twirl ↺'], ['PINCH', 'Pinch'], ['EXPAND', 'Expand'], ['RESTORE', 'Reconstruct']];
+settings.liquify = Object.assign({ mode: 'PUSH', size: 160, strength: 0.5 }, settings.liquify || {});
+$('#lq-modes').innerHTML = LIQUIFY_MODES.map(([id, name]) => `<button data-lq-mode="${id}">${name}</button>`).join('');
+$('#lq-modes').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  settings.liquify.mode = b.dataset.lqMode; saveSettings(); syncLiquifyBar();
+});
+for (const key of ['size', 'strength']) {
+  $('#lq-' + key).addEventListener('input', (e) => { settings.liquify[key] = +e.target.value; saveSettings(); syncLiquifyBar(); sliderPreview = key === 'size'; drawOverlay(); });
+  $('#lq-' + key).addEventListener('change', () => { sliderPreview = false; drawOverlay(); });
+}
+$('#lq-bar [data-lq=done]').addEventListener('click', () => { tool = lastPaintTool; updateToolUi(); });
+function syncLiquifyBar() {
+  for (const b of $$('#lq-modes button')) b.classList.toggle('active', b.dataset.lqMode === settings.liquify.mode);
+  $('#lq-size').value = settings.liquify.size;
+  $('#lq-strength').value = settings.liquify.strength;
+  $('#lq-size').nextElementSibling.textContent = Math.round(settings.liquify.size);
+  $('#lq-strength').nextElementSibling.textContent = pct(settings.liquify.strength);
+}
+
+function beginLiquify(e) {
+  input.mode = 'liquify';
+  input.pointerId = e.pointerId;
+  const q = pointFrom(e);
+  call('liquifyBegin', { mode: settings.liquify.mode, size: settings.liquify.size, strength: settings.liquify.strength, point: q });
+}
+function moveLiquify(e) {
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  const pts = [];
+  for (const ev of (events.length ? events : [e])) pts.push(...pointFrom(ev));
+  call('liquifyMove', { points: pts });
+}
+function endLiquify() {
+  call('liquifyEnd');
+  input.mode = null;
+  input.pointerId = null;
+}
+
+// ---- Tool bars -------------------------------------------------------------------------------
+
+function syncToolBars() {
+  if (xf && tool !== 'move') { const t = tool; finishTransform(true); tool = t; }
+  $('#sel-bar').hidden = tool !== 'select';
+  $('#xf-bar').hidden = tool !== 'move' || !xf;
+  $('#lq-bar').hidden = tool !== 'liquify';
+  $('#shape-bar').hidden = tool !== 'shape';
+  $('#b-shape').classList.toggle('active', tool === 'shape');
+  if (tool === 'shape') syncShapeBar();
+  $('#b-select').classList.toggle('active', tool === 'select');
+  $('#b-move').classList.toggle('active', tool === 'move');
+  $('#xf-uniform').classList.toggle('on', settings.xfUniform !== false);
+  if (tool === 'select') updateSelectionUi();
+  if (tool === 'liquify') syncLiquifyBar();
+}
+$('#b-select').addEventListener('click', () => {
+  finishTransform(true);
+  tool = tool === 'select' ? lastPaintTool : 'select';
+  updateToolUi();
+});
+$('#b-move').addEventListener('click', () => {
+  if (xf) { finishTransform(true); return; }
+  startMoveTool();
+});
+
+// ---- Masks -----------------------------------------------------------------------------------
+
+function syncMaskBanner() {
+  $('#mask-banner').hidden = !doc.editingMask;
+}
+$('#mask-done').addEventListener('click', () => call('layer', { op: 'editMask', args: [false] }));
+
+// ---- Watercolour Dry button ------------------------------------------------------------------
+
+$('#dry-btn').addEventListener('click', () => { call('dryWater'); $('#dry-btn').hidden = true; });
+function onWater(m) { $('#dry-btn').hidden = !m.active || !current; }
+
+// ---- Pen pressure curve ----------------------------------------------------------------------
+
+settings.pressure = Object.assign({ x: 0.5, y: 0.5 }, settings.pressure || {});
+const PRESSURE_PRESETS = { soft: { x: 0.28, y: 0.72 }, normal: { x: 0.5, y: 0.5 }, firm: { x: 0.72, y: 0.28 } };
+
+/** Maps raw pen pressure through the curve: a quadratic Bezier from (0,0) to (1,1). */
+function pressureCurve(p) {
+  const px = settings.pressure.x, py = settings.pressure.y;
+  if (px === 0.5 && py === 0.5) return p;
+  const A = 1 - 2 * px;
+  let t;
+  if (Math.abs(A) < 1e-5) t = p / (2 * px);
+  else t = (-2 * px + Math.sqrt(4 * px * px + 4 * A * p)) / (2 * A);
+  t = clamp(t, 0, 1);
+  return clamp(2 * (1 - t) * t * py + t * t, 0, 1);
+}
+
+let padLast = null;
+function openPressure() {
+  showDialog('#d-pressure');
+  drawPressureCurve();
+  const pad = $('#pressure-pad');
+  pad.getContext('2d').clearRect(0, 0, pad.width, pad.height);
+}
+function drawPressureCurve(live) {
+  const c = $('#pressure-curve'), x = c.getContext('2d');
+  const W = c.width, H = c.height, pad = 30;
+  const X = v => pad + v * (W - pad * 2), Y = v => H - pad - v * (H - pad * 2);
+  x.clearRect(0, 0, W, H);
+  x.strokeStyle = 'rgba(255,255,255,.08)'; x.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) {
+    x.beginPath(); x.moveTo(X(i / 4), Y(0)); x.lineTo(X(i / 4), Y(1)); x.stroke();
+    x.beginPath(); x.moveTo(X(0), Y(i / 4)); x.lineTo(X(1), Y(i / 4)); x.stroke();
+  }
+  x.strokeStyle = 'rgba(255,255,255,.25)'; x.setLineDash([8, 8]);
+  x.beginPath(); x.moveTo(X(0), Y(0)); x.lineTo(X(1), Y(1)); x.stroke();
+  x.setLineDash([]);
+  x.strokeStyle = '#6fa8ff'; x.lineWidth = 5;
+  x.beginPath();
+  for (let i = 0; i <= 64; i++) { const p = i / 64; const v = pressureCurve(p); i ? x.lineTo(X(p), Y(v)) : x.moveTo(X(p), Y(v)); }
+  x.stroke();
+  x.fillStyle = '#fff';
+  x.beginPath(); x.arc(X(settings.pressure.x), Y(settings.pressure.y), 14, 0, Math.PI * 2); x.fill();
+  if (live != null) {
+    x.fillStyle = '#ffb04a';
+    x.beginPath(); x.arc(X(live), Y(pressureCurve(live)), 10, 0, Math.PI * 2); x.fill();
+  }
+  x.fillStyle = '#9a9aa3'; x.font = '22px Segoe UI, sans-serif';
+  x.fillText('light', X(0), H - 4); x.fillText('hard', X(1) - 44, H - 4);
+  for (const b of $$('#pressure-presets button')) {
+    const pr = PRESSURE_PRESETS[b.dataset.p];
+    b.classList.toggle('active', Math.abs(pr.x - settings.pressure.x) < 0.01 && Math.abs(pr.y - settings.pressure.y) < 0.01);
+  }
+}
+{
+  const c = $('#pressure-curve');
+  const pick = (e) => {
+    const r = c.getBoundingClientRect();
+    const pad = 30 * r.width / c.width;
+    settings.pressure.x = clamp((e.clientX - r.left - pad) / (r.width - pad * 2), 0.04, 0.96);
+    settings.pressure.y = clamp(1 - (e.clientY - r.top - pad) / (r.height - pad * 2), 0.04, 0.96);
+    saveSettings();
+    drawPressureCurve();
+  };
+  c.addEventListener('pointerdown', (e) => { c.setPointerCapture(e.pointerId); pick(e); });
+  c.addEventListener('pointermove', (e) => { if (c.hasPointerCapture(e.pointerId)) pick(e); });
+  $('#pressure-presets').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    Object.assign(settings.pressure, PRESSURE_PRESETS[b.dataset.p]);
+    saveSettings();
+    drawPressureCurve();
+  });
+  const pad = $('#pressure-pad'), px = pad.getContext('2d');
+  pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); padLast = null; padDraw(e); });
+  pad.addEventListener('pointermove', (e) => { if (pad.hasPointerCapture(e.pointerId)) padDraw(e); else if (e.pointerType === 'pen') drawPressureCurve(e.pressure); });
+  pad.addEventListener('pointerup', () => { padLast = null; });
+  function padDraw(e) {
+    const r = pad.getBoundingClientRect();
+    const raw = e.pointerType === 'pen' ? e.pressure : 0.5;
+    const p = pressureCurve(raw);
+    const x = (e.clientX - r.left) * pad.width / r.width, y = (e.clientY - r.top) * pad.height / r.height;
+    px.strokeStyle = '#1f2a44'; px.lineCap = 'round';
+    px.lineWidth = 1 + p * 22;
+    px.beginPath();
+    if (padLast) px.moveTo(padLast[0], padLast[1]); else px.moveTo(x, y);
+    px.lineTo(x, y); px.stroke();
+    padLast = [x, y];
+    drawPressureCurve(raw);
+  }
+}
+
+// ---- Text ------------------------------------------------------------------------------------
+
+function openTextDialog() {
+  showDialog('#d-text');
+  const t = settings.text || {};
+  if (t.font) $('#text-font').value = t.font;
+  if (t.size) $('#text-size').value = t.size;
+  $('#text-bold').checked = !!t.bold;
+  $('#text-italic').checked = !!t.italic;
+  if (t.align) $('#text-align').value = t.align;
+  setTimeout(() => $('#text-input').focus(), 30);
+}
+$('#text-ok').addEventListener('click', () => {
+  const text = $('#text-input').value.replace(/\s+$/, '');
+  if (!text) { closeDialogs(); return; }
+  const opts = {
+    font: $('#text-font').value, size: clamp(+$('#text-size').value || 120, 6, 1000),
+    bold: $('#text-bold').checked, italic: $('#text-italic').checked, align: $('#text-align').value,
+  };
+  settings.text = opts;
+  saveSettings();
+  closeDialogs();
+  $('#text-input').value = '';
+  const fontCss = `${opts.italic ? 'italic ' : ''}${opts.bold ? '700 ' : '400 '}${opts.size}px ${opts.font}`;
+  const lines = text.split('\n');
+  const m = new OffscreenCanvas(8, 8).getContext('2d');
+  m.font = fontCss;
+  const widths = lines.map(l => m.measureText(l).width);
+  const lineH = Math.ceil(opts.size * 1.25);
+  const padding = Math.ceil(opts.size * 0.3);
+  const w = Math.min(doc.width * 2, Math.ceil(Math.max(...widths, 1)) + padding * 2);
+  const h = Math.min(doc.height * 2, lineH * lines.length + padding * 2);
+  const c = new OffscreenCanvas(w, h);
+  const x = c.getContext('2d');
+  x.font = fontCss;
+  x.fillStyle = hex(settings.color);
+  x.textBaseline = 'middle';
+  x.textAlign = opts.align;
+  const ax = opts.align === 'left' ? padding : opts.align === 'right' ? w - padding : w / 2;
+  lines.forEach((l, i) => x.fillText(l, ax, padding + lineH * (i + 0.5)));
+  const data = x.getImageData(0, 0, w, h).data;
+  const name = lines[0].slice(0, 40) || 'Text';
+  call('importImage', { name, rgba: data.buffer, width: w, height: h, x: (doc.width - w) / 2, y: (doc.height - h) / 2, thenTransform: true }, [data.buffer]);
+});
+
+// ---- Reference picture -----------------------------------------------------------------------
+
+let refBitmap = null;
+async function showReference(blob) {
+  try { refBitmap = blob ? await createImageBitmap(blob) : null; } catch { refBitmap = null; }
+  $('#ref-win').hidden = !refBitmap;
+  drawReference();
+}
+function drawReference() {
+  if (!refBitmap) return;
+  const c = $('#ref-canvas');
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = Math.max(1, Math.round(r.width * dpr));
+  c.height = Math.max(1, Math.round(r.height * dpr));
+  const x = c.getContext('2d');
+  x.clearRect(0, 0, c.width, c.height);
+  const k = Math.min(c.width / refBitmap.width, c.height / refBitmap.height);
+  const w = refBitmap.width * k, h = refBitmap.height * k;
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(refBitmap, (c.width - w) / 2, (c.height - h) / 2, w, h);
+}
+new ResizeObserver(() => drawReference()).observe($('#ref-win'));
+$('#ref-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !current) return;
+  await db.setReference(current.id, file).catch(() => {});
+  showReference(file);
+});
+$('#ref-close').addEventListener('click', () => {
+  if (current) db.setReference(current.id, null).catch(() => {});
+  showReference(null);
+});
+{
+  // Drag the window by its title, resize it from the corner.
+  const win = $('#ref-win');
+  let drag = null;
+  const start = (mode) => (e) => {
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const r = win.getBoundingClientRect();
+    drag = { mode, x: e.clientX, y: e.clientY, r };
+  };
+  const move = (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (drag.mode === 'move') {
+      win.style.left = clamp(drag.r.left + dx, 0, innerWidth - 60) + 'px';
+      win.style.top = clamp(drag.r.top + dy, 0, innerHeight - 40) + 'px';
+    } else {
+      win.style.width = clamp(drag.r.width + dx, 140, innerWidth) + 'px';
+      win.style.height = clamp(drag.r.height + dy, 120, innerHeight) + 'px';
+    }
+  };
+  const end = () => { drag = null; };
+  for (const [el, mode] of [[$('#ref-head'), 'move'], [$('#ref-grip'), 'size']]) {
+    el.addEventListener('pointerdown', start(mode));
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+  // Tap the picture to pick a colour from it.
+  const c = $('#ref-canvas');
+  const pickRef = (e, final) => {
+    const r = c.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) * c.width / r.width), y = Math.floor((e.clientY - r.top) * c.height / r.height);
+    const px = c.getContext('2d').getImageData(clamp(x, 0, c.width - 1), clamp(y, 0, c.height - 1), 1, 1).data;
+    if (px[3] < 10) return;
+    const col = (0xFF000000 | (px[0] << 16) | (px[1] << 8) | px[2]) | 0;
+    const loupe = $('#loupe');
+    loupe.style.left = e.clientX + 'px'; loupe.style.top = e.clientY + 'px';
+    loupe.style.background = hex(col); loupe.style.borderColor = hex(col);
+    loupe.hidden = !!final;
+    setColor(col, !!final);
+  };
+  c.addEventListener('pointerdown', (e) => { c.setPointerCapture(e.pointerId); pickRef(e, false); });
+  c.addEventListener('pointermove', (e) => { if (c.hasPointerCapture(e.pointerId)) pickRef(e, false); });
+  c.addEventListener('pointerup', (e) => { pickRef(e, true); if (tool === 'dropper') { tool = lastPaintTool; updateToolUi(); } });
+}
+
+// ---- Time-lapse ------------------------------------------------------------------------------
+
+let tl = null;  // { frames: ImageBitmap[], i, timer, playing }
+async function openTimelapse() {
+  const got = waitFor('frames');
+  call('frames');
+  const { frames } = await got;
+  if (!frames.length) { toast('No time-lapse yet: it records from now on, a frame each time you pause.'); return; }
+  const bitmaps = [];
+  for (const b of frames) { try { bitmaps.push(await createImageBitmap(b)); } catch { /* skip */ } }
+  if (!bitmaps.length) return;
+  const c = $('#tl-canvas');
+  c.width = bitmaps[bitmaps.length - 1].width;
+  c.height = bitmaps[bitmaps.length - 1].height;
+  tl = { frames: bitmaps, i: 0, timer: 0, playing: false };
+  $('#tl-pos').max = bitmaps.length - 1;
+  showDialog('#d-timelapse');
+  tlShow(bitmaps.length - 1);
+  tlPlay(true);
+}
+function tlFps() { return clamp(tl.frames.length / 15, 6, 30); }
+function tlShow(i) {
+  if (!tl) return;
+  tl.i = i;
+  const c = $('#tl-canvas'), x = c.getContext('2d');
+  const f = tl.frames[i];
+  x.fillStyle = '#fff';
+  x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(f, 0, 0, c.width, c.height);
+  $('#tl-pos').value = i;
+  $('#tl-info').textContent = `${i + 1} / ${tl.frames.length}`;
+}
+function tlPlay(on) {
+  if (!tl) return;
+  clearTimeout(tl.timer);
+  tl.playing = on;
+  $('#tl-play').textContent = on ? 'Pause' : 'Play';
+  if (!on) return;
+  if (tl.i >= tl.frames.length - 1) tlShow(0);
+  const tick = () => {
+    if (!tl || !tl.playing) return;
+    if (tl.i >= tl.frames.length - 1) { tlPlay(false); return; }
+    tlShow(tl.i + 1);
+    tl.timer = setTimeout(tick, 1000 / tlFps());
+  };
+  tl.timer = setTimeout(tick, 1000 / tlFps());
+}
+$('#tl-play').addEventListener('click', () => tlPlay(!tl?.playing));
+$('#tl-pos').addEventListener('input', (e) => { tlPlay(false); tlShow(+e.target.value); });
+$('#tl-export').addEventListener('click', async () => {
+  if (!tl || !window.MediaRecorder) { toast("This browser can't make videos."); return; }
+  tlPlay(false);
+  const c = $('#tl-canvas');
+  const stream = c.captureStream(30);
+  const type = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8e6 });
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => { rec.onstop = r; });
+  toast('Making the video…', 60000);
+  rec.start();
+  const fps = tlFps();
+  for (let i = 0; i < tl.frames.length; i++) {
+    tlShow(i);
+    await new Promise(r => setTimeout(r, 1000 / fps));
+  }
+  await new Promise(r => setTimeout(r, 1500));
+  rec.stop();
+  await stopped;
+  const blob = new Blob(chunks, { type: type.split(';')[0] });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (current?.name || 'Drawing') + ' time-lapse.' + (type.includes('mp4') ? 'mp4' : 'webm');
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+  toast('Saved ' + a.download + ' to Downloads');
+});
+document.addEventListener('click', (e) => {
+  // Stop the replay when its dialog closes.
+  if (tl && $('#d-timelapse').hidden) { tlPlay(false); tl = null; }
+}, true);
+
+// ---- Layer groups in the layer list ----------------------------------------------------------
+
+const collapsedGroups = new Set();
+
+function groupMenu(g, x, y) {
+  const menu = $('#layer-menu');
+  menu.innerHTML = `
+    <button data-op="rename">Rename group</button>
+    <label>Opacity <input type="range" min="0" max="1" step="0.01" value="${g.opacity}" data-op="opacity"><output>${Math.round(g.opacity * 100)}%</output></label>
+    <hr>
+    <button data-op="up">Move group up</button>
+    <button data-op="down">Move group down</button>
+    <button data-op="flatten">Flatten group into one layer</button>
+    <button data-op="ungroup">Ungroup</button>
+    <button data-op="delete" class="danger">Delete group and its layers</button>`;
+  menu.onclick = async (e) => {
+    const op = e.target.closest('button')?.dataset.op;
+    if (!op) return;
+    closeMenu();
+    if (op === 'rename') { const name = await prompt('Rename group', g.name); if (name) call('layer', { op: 'groupProps', args: [g.id, name, g.visible, g.opacity] }); }
+    if (op === 'up' || op === 'down') call('layer', { op: 'moveGroup', args: [g.id, op === 'up'] });
+    if (op === 'flatten') call('layer', { op: 'flattenGroup', args: [g.id] });
+    if (op === 'ungroup') call('layer', { op: 'ungroup', args: [g.id] });
+    if (op === 'delete') {
+      if (await confirmDelete('Delete group?', `"${g.name}" and every layer in it will be deleted. You can undo this.`)) call('layer', { op: 'deleteGroup', args: [g.id] });
+    }
+  };
+  const range = menu.querySelector('[data-op=opacity]');
+  range.addEventListener('input', () => {
+    range.nextElementSibling.textContent = Math.round(range.value * 100) + '%';
+    call('layer', { op: 'previewGroupOpacity', args: [g.id, +range.value] });
+  });
+  range.addEventListener('change', () => call('layer', { op: 'groupProps', args: [g.id, g.name, g.visible, +range.value] }));
+  openMenu(menu, x - 220, y);
+}
+
+function groupRow(g, members) {
+  const row = document.createElement('div');
+  row.className = 'group-row' + (collapsedGroups.has(g.id) ? ' collapsed' : '') + (g.visible ? '' : ' hidden-layer');
+  row.innerHTML = `<button class="icon-btn small chev" title="Show or hide the layers in it"><svg><use href="#i-chevron"/></svg></button>
+    <svg><use href="#i-folder"/></svg><div class="gname"><div></div><small>${members} layer${members === 1 ? '' : 's'} · ${Math.round(g.opacity * 100)}%</small></div>
+    <button class="icon-btn small vis" title="${g.visible ? 'Hide group' : 'Show group'}"><svg><use href="#i-${g.visible ? 'eye' : 'eye-off'}"/></svg></button>`;
+  row.querySelector('.gname div').textContent = g.name;
+  row.querySelector('.chev').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (collapsedGroups.has(g.id)) collapsedGroups.delete(g.id); else collapsedGroups.add(g.id);
+    renderLayers();
+  });
+  row.querySelector('.vis').addEventListener('click', (e) => {
+    e.stopPropagation();
+    call('layer', { op: 'groupProps', args: [g.id, g.name, !g.visible, g.opacity] });
+  });
+  row.addEventListener('click', (e) => groupMenu(g, e.clientX, e.clientY));
+  row.addEventListener('contextmenu', (e) => { e.preventDefault(); groupMenu(g, e.clientX, e.clientY); });
+  return row;
+}
+
+// ---- Photoshop files -------------------------------------------------------------------------
+
+async function openPsdFile(file) {
+  requestPersistence();
+  showCanvas();
+  const id = newId();
+  const bytes = await file.arrayBuffer();
+  const opened = waitFor('opened');
+  call('openPsd', { id, name: file.name.replace(/\.(psd|psb)$/i, ''), bytes }, [bytes]);
+  await opened;
+}
+
+// ---- Grid ------------------------------------------------------------------------------------
+
+function gridOn() { return !!(settings.grid && settings.grid.on); }
+function snapToGrid(x, y) {
+  if (!gridOn() || !settings.grid.snap) return [x, y];
+  const g = settings.grid.size;
+  return [Math.round(x / g) * g, Math.round(y / g) * g];
+}
+function drawGrid() {
+  if (!gridOn()) return;
+  let g = settings.grid.size;
+  // Too dense to see on screen: show every 2nd, 4th... line instead.
+  while (g * view.s < 6) g *= 2;
+  const major = settings.grid.size * 4;
+  octx.save();
+  const line = (x0, y0, x1, y1, strong) => {
+    const a = toScreen(x0, y0), b = toScreen(x1, y1);
+    octx.strokeStyle = strong ? 'rgba(80,120,200,.45)' : 'rgba(80,120,200,.22)';
+    octx.beginPath(); octx.moveTo(a[0], a[1]); octx.lineTo(b[0], b[1]); octx.stroke();
+  };
+  octx.lineWidth = 1;
+  for (let x = 0; x <= doc.width; x += g) line(x, 0, x, doc.height, x % major === 0);
+  for (let y = 0; y <= doc.height; y += g) line(0, y, doc.width, y, y % major === 0);
+  octx.restore();
+}
+function syncGridUi() {
+  $('#b-grid').classList.toggle('active', gridOn());
+  $('#grid-size').value = settings.grid.size;
+  $('#grid-size').nextElementSibling.textContent = settings.grid.size + ' px';
+  $('#grid-snap').classList.toggle('on', !!settings.grid.snap);
+}
+function toggleGrid(show) {
+  settings.grid.on = show ?? !settings.grid.on;
+  saveSettings();
+  $('#grid-pop').hidden = !settings.grid.on;
+  syncGridUi();
+  drawOverlay();
+}
+$('#b-grid').addEventListener('click', () => toggleGrid());
+$('#grid-size').addEventListener('input', (e) => { settings.grid.size = +e.target.value; saveSettings(); syncGridUi(); drawOverlay(); });
+$('#grid-snap').addEventListener('click', () => { settings.grid.snap = !settings.grid.snap; saveSettings(); syncGridUi(); });
+$('#grid-off').addEventListener('click', () => toggleGrid(false));
+$('#grid-close').addEventListener('click', () => { $('#grid-pop').hidden = true; });
+
+// ---- Ruler -----------------------------------------------------------------------------------
+// A straight guide on the canvas. Strokes that start near it are pulled onto its line, so
+// freehand pressure and texture are kept but the line comes out straight. Drag the middle
+// handle to move it and the round knob to turn it (it clicks to 15° steps).
+
+let ruler = null;          // { cx, cy, a } in canvas pixels and radians
+const RULER_GRAB = 22;     // screen pixels
+const RULER_PULL = 60;     // strokes starting this close (screen pixels) follow the ruler
+function rulerOn() { return !!settings.rulerOn && !!ruler; }
+function placeRuler() { ruler = { cx: doc.width / 2, cy: doc.height / 2, a: 0 }; }
+function rulerDir() { return [Math.cos(ruler.a), Math.sin(ruler.a)]; }
+function rulerKnob() {
+  // The turning knob sits a fixed screen distance from the middle, whatever the zoom.
+  const [dx, dy] = rulerDir();
+  const k = 130 / view.s;
+  return [ruler.cx + dx * k, ruler.cy + dy * k];
+}
+function rulerDistance(x, y) {
+  const [dx, dy] = rulerDir();
+  return Math.abs((x - ruler.cx) * dy - (y - ruler.cy) * dx);
+}
+function onRuler(q) {
+  const [dx, dy] = rulerDir();
+  const t = (q[0] - ruler.cx) * dx + (q[1] - ruler.cy) * dy;
+  q[0] = ruler.cx + dx * t;
+  q[1] = ruler.cy + dy * t;
+  return q;
+}
+function toggleRuler(on) {
+  settings.rulerOn = on ?? !settings.rulerOn;
+  saveSettings();
+  if (settings.rulerOn && (!ruler || ruler.cx < 0 || ruler.cy < 0 || ruler.cx > doc.width || ruler.cy > doc.height)) placeRuler();
+  $('#b-ruler').classList.toggle('active', !!settings.rulerOn);
+  if (settings.rulerOn) toast('Strokes that start near the ruler come out straight. Drag its handles to move or turn it.', 3500);
+  drawOverlay();
+}
+$('#b-ruler').addEventListener('click', () => toggleRuler());
+
+/** Starts dragging a ruler handle if the pointer is on one. */
+function grabRuler(e) {
+  if (!rulerOn()) return false;
+  const m = toScreen(ruler.cx, ruler.cy), k = toScreen(...rulerKnob());
+  let part = null;
+  if (Math.hypot(e.clientX - k[0], e.clientY - k[1]) < RULER_GRAB) part = 'turn';
+  else if (Math.hypot(e.clientX - m[0], e.clientY - m[1]) < RULER_GRAB) part = 'move';
+  if (!part) return false;
+  const [x, y] = toDoc(e.clientX, e.clientY);
+  input.mode = 'ruler';
+  input.pointerId = e.pointerId;
+  input.ruler = { part, x, y, cx: ruler.cx, cy: ruler.cy };
+  return true;
+}
+function moveRuler(e) {
+  const g = input.ruler;
+  let [x, y] = toDoc(e.clientX, e.clientY);
+  if (g.part === 'move') {
+    [ruler.cx, ruler.cy] = snapToGrid(g.cx + x - g.x, g.cy + y - g.y);
+  } else {
+    let a = Math.atan2(y - ruler.cy, x - ruler.cx);
+    const step = Math.PI / 12;
+    const snapped = Math.round(a / step) * step;
+    if (e.shiftKey || Math.abs(a - snapped) < 0.035) a = snapped;
+    ruler.a = a;
+  }
+  drawOverlay();
+}
+function drawRuler() {
+  if (!rulerOn()) return;
+  const [dx, dy] = rulerDir();
+  const far = (doc.width + doc.height) * 2;
+  const a = toScreen(ruler.cx - dx * far, ruler.cy - dy * far), b = toScreen(ruler.cx + dx * far, ruler.cy + dy * far);
+  const m = toScreen(ruler.cx, ruler.cy), k = toScreen(...rulerKnob());
+  octx.save();
+  // A soft band so the ruler reads as an object, with the line strokes snap to in the middle.
+  octx.lineCap = 'butt';
+  octx.strokeStyle = 'rgba(111,168,255,.12)'; octx.lineWidth = 34;
+  octx.beginPath(); octx.moveTo(a[0], a[1]); octx.lineTo(b[0], b[1]); octx.stroke();
+  octx.strokeStyle = 'rgba(40,80,160,.8)'; octx.lineWidth = 1.5;
+  octx.beginPath(); octx.moveTo(a[0], a[1]); octx.lineTo(b[0], b[1]); octx.stroke();
+  // Handles.
+  const disc = (p, r, fill) => {
+    octx.beginPath(); octx.arc(p[0], p[1], r, 0, Math.PI * 2);
+    octx.fillStyle = fill; octx.fill();
+    octx.lineWidth = 2; octx.strokeStyle = 'rgba(40,80,160,.9)'; octx.stroke();
+  };
+  disc(m, 12, 'rgba(255,255,255,.95)');
+  octx.fillStyle = 'rgba(40,80,160,.9)';
+  octx.beginPath(); octx.arc(m[0], m[1], 3.5, 0, Math.PI * 2); octx.fill();
+  disc(k, 9, 'rgba(111,168,255,.95)');
+  if (input.mode === 'ruler' && input.ruler.part === 'turn') {
+    let deg = Math.round(-ruler.a * 180 / Math.PI) % 180;
+    if (deg < 0) deg += 180;
+    octx.font = '600 13px system-ui, sans-serif';
+    octx.fillStyle = 'rgba(20,30,60,.9)';
+    octx.fillText(deg + '°', k[0] + 14, k[1] - 12);
+  }
+  octx.restore();
+}
+
+// ---- Shapes ----------------------------------------------------------------------------------
+// Drag out a shape; on release it is drawn with the current brush, size and colour (and/or
+// filled with the colour), so it looks like the rest of the drawing.
+
+let shapeDraft = null;     // { kind, x0, y0, x1, y1, even }
+
+function syncShapeBar() {
+  const s = settings.shape;
+  for (const b of $$('#shape-kinds button')) b.classList.toggle('active', b.dataset.kind === s.kind);
+  for (const b of $$('#shape-styles button')) b.classList.toggle('active', b.dataset.style === s.style);
+  $('#shape-sides-wrap').hidden = s.kind !== 'polygon' && s.kind !== 'star';
+  $('#shape-sides').value = s.sides;
+  $('#shape-even').classList.toggle('on', !!s.even);
+  $('#shape-styles button[data-style=fill]').disabled = s.kind === 'line';
+  $('#shape-styles button[data-style=both]').disabled = s.kind === 'line';
+}
+$('#shape-kinds').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  settings.shape.kind = b.dataset.kind; saveSettings(); syncShapeBar();
+});
+$('#shape-styles').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  settings.shape.style = b.dataset.style; saveSettings(); syncShapeBar();
+});
+$('#shape-sides').addEventListener('change', (e) => {
+  settings.shape.sides = clamp(Math.round(+e.target.value || 5), 3, 24); saveSettings(); syncShapeBar();
+});
+$('#shape-even').addEventListener('click', () => { settings.shape.even = !settings.shape.even; saveSettings(); syncShapeBar(); });
+$('#b-shape').addEventListener('click', () => {
+  finishTransform(true);
+  tool = tool === 'shape' ? lastPaintTool : 'shape';
+  updateToolUi();
+});
+
+function beginShape(e) {
+  let [x, y] = toDoc(e.clientX, e.clientY);
+  [x, y] = snapToGrid(x, y);
+  input.mode = 'shape';
+  input.pointerId = e.pointerId;
+  shapeDraft = { kind: settings.shape.kind, x0: x, y0: y, x1: x, y1: y, even: !!settings.shape.even };
+}
+function moveShape(e) {
+  const d = shapeDraft;
+  let [x, y] = toDoc(e.clientX, e.clientY);
+  [x, y] = snapToGrid(x, y);
+  d.x1 = x; d.y1 = y;
+  d.even = !!settings.shape.even !== e.shiftKey;
+  drawOverlay();
+}
+
+/** The shape as a list of corner points (x, y, ...) in canvas pixels, and whether it closes. */
+function shapePoints(d) {
+  let { x0, y0, x1, y1 } = d;
+  const pts = [];
+  if (d.kind === 'line') {
+    if (d.even) {
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const step = Math.PI / 12;
+      const a = Math.round(Math.atan2(y1 - y0, x1 - x0) / step) * step;
+      x1 = x0 + Math.cos(a) * len; y1 = y0 + Math.sin(a) * len;
+    }
+    return { pts: [x0, y0, x1, y1], closed: false };
+  }
+  if (d.kind === 'rect' || d.kind === 'ellipse') {
+    if (d.even) {
+      const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      x1 = x0 + Math.sign(x1 - x0 || 1) * s; y1 = y0 + Math.sign(y1 - y0 || 1) * s;
+    }
+    if (d.kind === 'rect') return { pts: [x0, y0, x1, y0, x1, y1, x0, y1], closed: true };
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = Math.abs(x1 - x0) / 2, ry = Math.abs(y1 - y0) / 2;
+    const n = clamp(Math.round(Math.PI * (rx + ry) / 3), 24, 720);
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; pts.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry); }
+    return { pts, closed: true };
+  }
+  // Polygon and star: from the centre out to the first corner.
+  const r = Math.hypot(x1 - x0, y1 - y0);
+  let a0 = Math.atan2(y1 - y0, x1 - x0);
+  if (d.even) a0 = -Math.PI / 2; // upright
+  const sides = settings.shape.sides;
+  const star = d.kind === 'star';
+  const n = star ? sides * 2 : sides;
+  for (let i = 0; i < n; i++) {
+    const a = a0 + i / n * Math.PI * 2;
+    const rr = star && i % 2 ? r * 0.45 : r;
+    pts.push(x0 + Math.cos(a) * rr, y0 + Math.sin(a) * rr);
+  }
+  return { pts, closed: true };
+}
+
+function endShape(cancelled) {
+  const d = shapeDraft;
+  shapeDraft = null;
+  input.mode = null;
+  input.pointerId = null;
+  drawOverlay();
+  if (!d || cancelled) return;
+  if (Math.hypot(d.x1 - d.x0, d.y1 - d.y0) * view.s < 4) return; // a tap
+  const { pts, closed } = shapePoints(d);
+  const style = d.kind === 'line' ? 'outline' : settings.shape.style;
+  if (style !== 'outline') call('fillShape', { points: pts, color: settings.color });
+  if (style !== 'fill') drawShapeStroke(pts, closed);
+}
+
+/** Draws a corner list with the current brush as one stroke. */
+function drawShapeStroke(pts, closed) {
+  let list = pts.slice();
+  if (closed) {
+    // Start halfway along the first side and go round past the start, so the brush's thin
+    // tapered ends lie on top of full-width paint instead of leaving a gap.
+    const mx = (pts[0] + pts[2]) / 2, my = (pts[1] + pts[3]) / 2;
+    list = [mx, my, ...pts.slice(2), pts[0], pts[1], pts[2], pts[3]];
+  }
+  // Fill in the straight runs so the brush lays dabs evenly along them.
+  const out = [];
+  let t = performance.now();
+  const step = Math.max(1, sizeFor(tool) / 8);
+  for (let i = 0; i < list.length - 2; i += 2) {
+    const ax = list[i], ay = list[i + 1], bx = list[i + 2], by = list[i + 3];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
+    for (let j = i === 0 ? 0 : 1; j <= n; j++) {
+      out.push(ax + (bx - ax) * j / n, ay + (by - ay) * j / n, 1, 0, 0, t);
+      t += 1;
+    }
+  }
+  if (out.length < 12) return;
+  const fake = { pointerType: 'mouse', button: 0, buttons: 1 };
+  const params = Object.assign(strokeParams(fake), { usePressure: false, streamline: 0 });
+  call('begin', { params, point: out.slice(0, 6) });
+  call('move', { points: out.slice(6) });
+  call('end');
+}
+
+function drawShapeDraft() {
+  if (!shapeDraft) return;
+  const { pts, closed } = shapePoints(shapeDraft);
+  octx.save();
+  octx.beginPath();
+  for (let i = 0; i < pts.length; i += 2) {
+    const p = toScreen(pts[i], pts[i + 1]);
+    if (i === 0) octx.moveTo(p[0], p[1]); else octx.lineTo(p[0], p[1]);
+  }
+  if (closed) octx.closePath();
+  if (shapeDraft.kind !== 'line' && settings.shape.style !== 'outline') { octx.fillStyle = hex(settings.color) + '55'; octx.fill(); }
+  octx.lineWidth = Math.max(1, sizeFor(tool) * view.s);
+  octx.lineJoin = 'round'; octx.lineCap = 'round';
+  octx.strokeStyle = hex(settings.color) + 'aa';
+  if (settings.shape.style !== 'fill' || shapeDraft.kind === 'line') octx.stroke();
+  octx.lineWidth = 1; octx.setLineDash([6, 5]); octx.strokeStyle = 'rgba(111,168,255,.9)'; octx.stroke();
+  octx.restore();
 }
 
 // ---- Start -----------------------------------------------------------------------------------

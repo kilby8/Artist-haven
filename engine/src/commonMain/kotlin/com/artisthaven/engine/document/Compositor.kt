@@ -33,7 +33,8 @@ object Compositor {
         val maskData = arrayOfNulls<IntArray>(count)
         val hasMask = visible.any { it.mask != null }
         val clipBase = clipBases(visible)
-        val shown = BooleanArray(count) { shows(visible, clipBase, it) }
+        val shown = BooleanArray(count) { shows(doc, clipBase, it) }
+        val opacity = FloatArray(count) { doc.effectiveOpacity(visible[it]) }
         // Layers whose pixels are read: the ones shown, and the bases they are clipped to (a base
         // at 0% opacity still gives its clipped layers their shape).
         val needed = BooleanArray(count)
@@ -74,8 +75,7 @@ object Compositor {
                                 if (ba == 0) continue
                                 if (ba < 255) src = Pixels.scale(src, ba / 255f)
                             }
-                            val layer = visible[i]
-                            acc = layer.blendMode.blend(acc, src, layer.opacity)
+                            acc = visible[i].blendMode.blend(acc, src, opacity[i])
                         }
                         out[outRow + x] = Pixels.unpremultiply(acc)
                     }
@@ -98,11 +98,12 @@ object Compositor {
      * Whether a layer adds anything to the picture. A clipping mask hides with its base layer,
      * like Procreate and Photoshop, but still shows when the base is only faded to 0% opacity.
      */
-    internal fun shows(layers: List<Layer>, clipBase: IntArray, i: Int): Boolean {
+    internal fun shows(doc: Document, clipBase: IntArray, i: Int): Boolean {
+        val layers = doc.layers
         val l = layers[i]
-        if (!l.visible || l.opacity <= 0f) return false
+        if (!doc.effectiveVisible(l) || doc.effectiveOpacity(l) <= 0f) return false
         val cb = clipBase[i]
-        return cb < 0 || layers[cb].visible
+        return cb < 0 || doc.effectiveVisible(layers[cb])
     }
 
     /** Full straight-ARGB image of the document. */
@@ -142,7 +143,7 @@ object Compositor {
                 val py = ((y + 0.25f + sy * 0.5f) * fy).toInt().coerceIn(0, doc.height - 1)
                 var acc = paper
                 for ((li, layer) in layers.withIndex()) {
-                    if (!shows(layers, clipBase, li)) continue
+                    if (!shows(doc, clipBase, li)) continue
                     var src = layer.maskedPixel(px, py)
                     if (src == 0) continue
                     val cb = clipBase[li]
@@ -151,7 +152,7 @@ object Compositor {
                         if (base == 0) continue
                         if (base < 255) src = Pixels.scale(src, base / 255f)
                     }
-                    acc = layer.blendMode.blend(acc, src, layer.opacity)
+                    acc = layer.blendMode.blend(acc, src, doc.effectiveOpacity(layer))
                 }
                 a += Pixels.alpha(acc); r += Pixels.red(acc); g += Pixels.green(acc); b += Pixels.blue(acc)
             }

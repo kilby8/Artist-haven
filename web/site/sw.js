@@ -1,6 +1,6 @@
 // Offline support. Pages are fetched from the network first so updates arrive straight away;
 // the cached copy is used when there is no connection.
-const CACHE = 'artist-haven-v1';
+const CACHE = 'artist-haven-v2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./', 'index.html', 'style.css', 'app.js', 'worker.js', 'db.js', 'manifest.webmanifest',

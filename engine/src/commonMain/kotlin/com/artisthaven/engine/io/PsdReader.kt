@@ -108,7 +108,7 @@ object PsdReader {
         val infoLength = if (g.psb) r.i64() else (r.i32().toLong() and 0xFFFFFFFFL)
         if (infoLength == 0L) return emptyList()
         val info = r.sub(minOf(infoLength, (sectionEnd - r.pos).toLong()).toInt())
-        val count = Math.abs(info.i16())
+        val count = kotlin.math.abs(info.i16())
         val records = ArrayList<Record>(count)
         repeat(count) { records += readRecord(info, g.psb, warnings) }
 
@@ -220,7 +220,7 @@ object PsdReader {
         }
         extra.skip(extra.len32()) // blending ranges
         val nameLen = extra.u8()
-        var name = String(extra.take(nameLen), Charsets.ISO_8859_1)
+        var name = extra.ascii(nameLen)
         val pad = (4 - (1 + nameLen) % 4) % 4
         extra.skip(minOf(pad, extra.left))
 
@@ -266,7 +266,7 @@ object PsdReader {
         val rowBytes = w * bpp
         val raw = List(planes) { ByteArray(rowBytes * h) }
         when (compression) {
-            0 -> for (p in raw) System.arraycopy(r.take(p.size), 0, p, 0, p.size)
+            0 -> for (p in raw) r.take(p.size).copyInto(p)
             1 -> {
                 val counts = IntArray(planes * h) { if (g.psb) r.i32() else r.u16() }
                 for ((i, p) in raw.withIndex()) {
@@ -274,10 +274,7 @@ object PsdReader {
                 }
             }
             2, 3 -> {
-                val inflater = java.util.zip.Inflater()
-                inflater.setInput(r.bytes, r.pos, r.left)
-                for (p in raw) inflater.inflate(p)
-                inflater.end()
+                inflateInto(r.bytes, r.pos, r.left, raw)
                 if (compression == 3) for (p in raw) unpredict(p, w, h, bpp)
             }
             else -> throw FormatException("unknown compression $compression")
@@ -385,7 +382,7 @@ object PsdReader {
                 )
             }
         }
-        java.util.Arrays.fill(acc, 0L)
+        acc.fill(0L)
     }
 
     /**

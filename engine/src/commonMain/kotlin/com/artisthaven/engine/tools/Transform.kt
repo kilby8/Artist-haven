@@ -143,7 +143,8 @@ class TransformSession(
             }
         } else {
             src = arrayOfNulls(original.size)
-            base = arrayOfNulls(original.size)
+            // Tiles outside the selection keep their pixels; the moved part is drawn over them.
+            base = original.copyOf()
             var bounds: IRect? = null
             for (i in original.indices) {
                 val o = original[i] ?: continue
@@ -179,11 +180,12 @@ class TransformSession(
         matrix = m
         val docBounds = surface.bounds
         val out = m.mapBounds(source).intersect(docBounds)
+        // Fresh copies only: the original tiles are the undo "before" state.
+        if (!out.isEmpty && !source.isEmpty) touched.addAll(surface.tilesIn(out).toList())
         for (i in touched) surface.setTile(i, base[i]?.copyOf())
         val dirty = IRect.unionOf(IRect.unionOf(lastOut, if (lastOut == null) source else null), out.takeUnless { it.isEmpty })
         lastOut = out.takeUnless { it.isEmpty }
         if (out.isEmpty || source.isEmpty) return dirty
-        touched.addAll(surface.tilesIn(out).toList())
         rasterize(m, out, quality)
         return dirty
     }

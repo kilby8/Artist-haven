@@ -16,6 +16,29 @@ class Document(
     val layers: MutableList<Layer> = mutableListOf()
     var activeLayerId: String = ""
 
+    /** Layer groups by id; a layer joins one through [LayerProps.group]. */
+    val groups: MutableMap<String, GroupProps> = LinkedHashMap()
+
+    fun groupOf(layer: Layer): GroupProps? = if (layer.group.isEmpty()) null else groups[layer.group]
+
+    /** Shown, counting its group: a hidden group hides all its layers. */
+    fun effectiveVisible(layer: Layer): Boolean = layer.visible && (groupOf(layer)?.visible ?: true)
+
+    /** The layer's opacity times its group's. */
+    fun effectiveOpacity(layer: Layer): Float = layer.opacity * (groupOf(layer)?.opacity ?: 1f)
+
+    fun newGroupId(): String {
+        var n = groups.size + 1
+        while (groups.containsKey("G$n")) n++
+        return "G$n"
+    }
+
+    fun nextGroupName(): String {
+        var n = groups.size + 1
+        while (groups.values.any { it.name == "Group $n" }) n++
+        return "Group $n"
+    }
+
     /** Limits painting, fills and transforms to part of the canvas; null means everything. */
     var selection: Selection? = null
 
@@ -55,8 +78,9 @@ class Document(
         return "Layer $n"
     }
 
-    fun createLayer(name: String = nextLayerName()): Layer =
-        Layer(newLayerId(), LayerProps(name = name), TiledSurface(width, height))
+    /** A new empty layer; it joins the active layer's group, as new layers go just above it. */
+    fun createLayer(name: String = nextLayerName(), group: String = activeLayer?.group ?: ""): Layer =
+        Layer(newLayerId(), LayerProps(name = name, group = group), TiledSurface(width, height))
 
     companion object {
         fun blank(width: Int, height: Int, paperColor: Int = 0xFFFFFFFF.toInt()): Document {

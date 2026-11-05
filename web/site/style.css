@@ -272,3 +272,91 @@ input.wide { width: 100%; }
 .layer-opacity input { width: 100%; height: 30px; accent-color: var(--accent); }
 .layer-opacity output { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
 .menu output { min-width: 40px; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* ---- Tool bars (selection, transform, liquify) -------------------------------------------- */
+.tool-bar {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px 14px;
+  max-width: calc(100vw - 180px); padding: 10px 14px; border-radius: 18px; background: var(--bar);
+  box-shadow: 0 10px 30px rgba(0,0,0,.4);
+}
+.tool-bar button { padding: 8px 12px; border-radius: 10px; font-size: 14px; }
+.tool-bar button:hover { background: rgba(255,255,255,.07); }
+.tool-bar .primary-btn { height: 38px; padding: 0 16px; }
+.tool-bar .text-btn { height: 38px; }
+.tool-bar label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--dim); }
+.tool-bar select { background: var(--raised); border: 1px solid var(--divider); border-radius: 8px; padding: 5px 6px; }
+.seg { display: flex; background: var(--raised); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button.active, .seg button.toggle.on { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+.seg.vertical { flex-direction: column; }
+.bar-actions, .bar-end { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.bar-slider input { width: 140px; accent-color: var(--accent); }
+.bar-slider output { min-width: 34px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* ---- Adjustments ---------------------------------------------------------------------------- */
+.adjust-panel {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 6;
+  width: min(520px, calc(100vw - 20px)); padding-bottom: 14px; border-radius: var(--radius);
+  background: var(--panel); box-shadow: 0 16px 50px rgba(0,0,0,.5);
+}
+.adjust-panel .dialog-actions { padding: 0 18px; align-items: center; }
+.adjust-body { padding: 0 18px 8px; }
+.adjust-body .studio-field { grid-template-columns: 130px 1fr 52px; }
+
+/* ---- Layers: masks and groups ------------------------------------------------------------------ */
+.layer-row .lmask { width: 40px; height: 48px; border-radius: 6px; flex: none; display: grid; place-items: center; background: #000; overflow: hidden; cursor: pointer; }
+.layer-row .lmask canvas { max-width: 40px; max-height: 48px; display: block; }
+.layer-row .lmask.editing, .layer-row .lthumb.editing { outline: 2px solid var(--accent); outline-offset: 1px; }
+.layer-row.in-group { margin-left: 22px; }
+.group-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 12px; background: #2a2a31; border: 1px solid var(--divider); }
+.group-row .gname { flex: 1; min-width: 0; }
+.group-row .gname div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.group-row .gname small { color: var(--dim); }
+.group-row svg { width: 22px; height: 22px; }
+.group-row .chev { transition: transform .15s; }
+.group-row.collapsed .chev { transform: rotate(-90deg); }
+.group-row.hidden-layer .gname { opacity: .45; }
+
+.mask-banner {
+  position: absolute; left: 50%; top: calc(var(--bar-h) + 10px); transform: translateX(-50%); z-index: 5;
+  padding: 8px 14px; border-radius: 12px; background: #31446a; font-size: 14px; display: flex; gap: 8px; align-items: center;
+}
+.dry-btn {
+  position: absolute; right: 16px; bottom: 16px; z-index: 5; display: flex; align-items: center; gap: 6px;
+  padding: 10px 16px; border-radius: 22px; background: #2d5f8a; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.4);
+}
+.dry-btn svg { width: 20px; height: 20px; }
+
+/* ---- Reference window ---------------------------------------------------------------------- */
+.ref-win {
+  position: absolute; left: 90px; top: 90px; width: 320px; height: 260px; z-index: 5;
+  background: var(--panel); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; overflow: hidden; min-width: 140px; min-height: 120px;
+}
+.ref-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 2px 12px; font-size: 13px; color: var(--dim); cursor: move; touch-action: none; }
+#ref-canvas { flex: 1; min-height: 0; width: 100%; display: block; cursor: crosshair; touch-action: none; }
+.ref-grip { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,.35) 50%, rgba(255,255,255,.35) 60%, transparent 60%, transparent 70%, rgba(255,255,255,.35) 70%, rgba(255,255,255,.35) 80%, transparent 80%); }
+
+/* ---- Pressure, text and time-lapse dialogs --------------------------------------------------- */
+.pressure-body { display: flex; gap: 16px; flex-wrap: wrap; }
+#pressure-curve { width: 240px; height: 240px; border-radius: 12px; background: var(--bg); touch-action: none; cursor: grab; }
+.pressure-side { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+.pressure-side .seg button { text-align: left; padding: 9px 12px; border-radius: 10px; }
+#pressure-pad { width: 100%; height: 100px; border-radius: 12px; background: #f4f1ea; touch-action: none; }
+#text-input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider); background: var(--bg); color: var(--text); font: inherit; font-size: 17px; resize: vertical; }
+.text-opts { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.text-opts label { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+.text-opts select, .text-opts input[type=number] { background: var(--bg); border: 1px solid var(--divider); border-radius: 8px; padding: 6px 8px; }
+.text-opts input[type=number] { width: 80px; }
+.text-opts input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+.wide-dialog { width: min(900px, calc(100vw - 32px)); }
+#tl-canvas { width: 100%; max-height: 60vh; object-fit: contain; border-radius: 10px; background: #111; }
+.tl-controls { display: flex; align-items: center; gap: 12px; }
+.tl-controls input { flex: 1; accent-color: var(--accent); }
+.top-bar .icon-btn.active { color: var(--accent); }
+@media (max-width: 900px) { .tool-bar { max-width: calc(100vw - 20px); bottom: 8px; } }
+
+/* ---- Shapes, ruler, grid ------------------------------------------------------------------- */
+.grid-pop { top: 72px; bottom: auto; }
+#shape-sides { width: 56px; background: var(--raised); border: 1px solid var(--divider); border-radius: 8px; padding: 5px 6px; color: var(--text); }

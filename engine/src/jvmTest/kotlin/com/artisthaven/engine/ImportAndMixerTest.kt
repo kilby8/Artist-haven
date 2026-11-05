@@ -207,7 +207,7 @@ class ImportAndMixerTest {
         editor.addLayer()
         editor.setLayerProps(doc.activeLayerId) { it.copy(name = "Off", visible = false) }
 
-        val bytes = ByteArrayOutputStream().also { PsdWriter.write(doc, it) }.toByteArray()
+        val bytes = PsdWriter.encode(doc)
         val result = PsdReader.read(bytes)
         val loaded = result.doc
         assertEquals(160, loaded.width)
@@ -233,7 +233,7 @@ class ImportAndMixerTest {
         val doc = Document.blank(400, 200)
         val editor = Editor(doc)
         draw(editor, TestSupport.line(0f, 100f, 400f, 100f), StrokeParams(BrushLibrary.byId("hard_airbrush"), size = 30f, color = 0xFF2E7D32.toInt()))
-        val bytes = ByteArrayOutputStream().also { PsdWriter.write(doc, it) }.toByteArray()
+        val bytes = PsdWriter.encode(doc)
         val result = PsdReader.read(bytes, maxSide = 200)
         assertEquals(200, result.doc.width)
         assertEquals(100, result.doc.height)

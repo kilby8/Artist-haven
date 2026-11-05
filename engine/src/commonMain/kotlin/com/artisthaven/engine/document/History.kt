@@ -261,3 +261,24 @@ class MaskCommand(
     override fun apply(doc: Document) = set(doc, after, editingAfter)
     override fun revert(doc: Document) = set(doc, before, editingBefore)
 }
+
+/** Changes layer groups: the group list and which group each layer is in. */
+class GroupsCommand(
+    override val label: String,
+    private val groupsBefore: Map<String, GroupProps>,
+    private val groupsAfter: Map<String, GroupProps>,
+    private val propsBefore: Map<String, LayerProps>,
+    private val propsAfter: Map<String, LayerProps>,
+) : Command {
+    override val bytes: Long = 256L + (propsBefore.size + groupsBefore.size) * 64L
+
+    private fun set(doc: Document, groups: Map<String, GroupProps>, props: Map<String, LayerProps>): Change {
+        doc.groups.clear()
+        doc.groups.putAll(groups)
+        for ((id, p) in props) doc.layer(id)?.props = p
+        return Change(doc.bounds, true)
+    }
+
+    override fun apply(doc: Document) = set(doc, groupsAfter, propsAfter)
+    override fun revert(doc: Document) = set(doc, groupsBefore, propsBefore)
+}

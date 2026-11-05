@@ -11,7 +11,7 @@
 - `document/`: `Document`, `Layer`, `BlendMode` (13 W3C modes), `Compositor` (outputs straight ARGB), `History` (tile before/after snapshots with a byte budget).
 - `brush/`: `BrushPreset` + `BrushLibrary` (about 200 brushes: the core set in `BrushPreset.kt`, the rest in `MoreBrushes.kt`), procedural tips and grain in `Textures`, stamp tips in `Stamps`, repeating patterns in `Patterns`. `docs/BRUSH-SURVEY.md` maps them to other apps.
 - `stroke/`: `StrokeSession` does smoothing (StreamLine), spacing, taper, dynamics, glaze, wet, wash and Mixer rendering, symmetry. `MixerState` is the paint the Mixer Brush carries between strokes (owned by `Editor`).
-- `tools/`: flood fill, QuickShape recognition. `io/` (JVM only, in `src/jvmMain`): project folder format (`ProjectCodec`), layered PSD export (`PsdWriter`) and import (`PsdReader`), Photoshop brush import (`AbrReader`). Code ported from PhotoCraft is listed in `THIRD_PARTY_NOTICES.md`; keep its MIT notice.
+- `tools/`: flood fill, QuickShape recognition, transform, adjustments (`Adjust.kt`: hue, levels, blur and more) and liquify. `io/`: layered PSD export (`PsdWriter`) and import (`PsdReader`) are in `src/commonMain` so the web app uses them too (ZIP-compressed PSD layers only open on the JVM, see `inflateInto`); the project folder format (`ProjectCodec`) and Photoshop brush import (`AbrReader`) are JVM only, in `src/jvmMain`. Code ported from PhotoCraft is listed in `THIRD_PARTY_NOTICES.md`; keep its MIT notice.
 - `Editor` is the single entry point; every mutating action returns a `Change` and pushes a `Command` so undo works.
 - The engine is not thread safe. The app only touches it from the `EngineHost` thread.
 

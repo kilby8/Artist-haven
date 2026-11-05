@@ -17,6 +17,13 @@ import com.artisthaven.engine.document.Compositor
 import com.artisthaven.engine.document.Document
 import com.artisthaven.engine.document.Layer
 import com.artisthaven.engine.document.LayerProps
+import com.artisthaven.engine.document.GroupProps
+import com.artisthaven.engine.io.PsdReader
+import com.artisthaven.engine.io.PsdWriter
+import com.artisthaven.engine.tools.Adjustment
+import com.artisthaven.engine.tools.Affine
+import com.artisthaven.engine.tools.LiquifyMode
+import com.artisthaven.engine.tools.Resample
 import com.artisthaven.engine.raster.IRect
 import com.artisthaven.engine.raster.Pixels
 import com.artisthaven.engine.raster.TiledSurface
@@ -226,6 +233,19 @@ class WebEditor private constructor(private val doc: Document) {
             put("alphaLock", l.alphaLock)
             put("clipping", l.clipping)
             put("active", l.id == doc.activeLayerId)
+            put("hasMask", l.mask != null)
+            put("editingMask", doc.paintsMask(l))
+            put("group", l.group)
+        })
+    }.toString()
+
+    /** Layer groups as JSON: id, name, visible, opacity. */
+    fun groupsJson(): String = buildJsonArray {
+        for ((id, g) in doc.groups) add(buildJsonObject {
+            put("id", id)
+            put("name", g.name)
+            put("visible", g.visible)
+            put("opacity", g.opacity)
         })
     }.toString()
 
@@ -246,7 +266,7 @@ class WebEditor private constructor(private val doc: Document) {
         id: String, name: String, visible: Boolean, opacity: Float, blendMode: String,
         alphaLock: Boolean, clipping: Boolean,
     ) {
-        apply(editor.setLayerProps(id) { props(name, visible, opacity, blendMode, alphaLock, clipping) }, all = true)
+        apply(editor.setLayerProps(id) { props(name, visible, opacity, blendMode, alphaLock, clipping).copy(group = it.group) }, all = true)
     }
 
     /** Live opacity while a slider moves; call [commitLayerOpacity] when it is released. */
@@ -263,6 +283,155 @@ class WebEditor private constructor(private val doc: Document) {
         previewBefore = null
         apply(editor.commitLayerProps(id, before), all = true)
     }
+
+    /** Adds a picture as a new layer with its top-left corner at (x, y). Pixels are RGBA bytes. */
+    fun addImageLayerAt(name: String, rgba: IntArray, width: Int, height: Int, x: Int, y: Int) {
+        val argb = IntArray(rgba.size) { fromRgba(rgba[it]) }
+        apply(editor.addImageLayerAt(name, argb, width, height, x, y), all = true)
+    }
+
+    // ---- Layer masks ------------------------------------------------------------------------------
+
+    fun addMask(id: String) = apply(editor.addMask(id), all = true)
+    fun deleteMask(id: String) = apply(editor.deleteMask(id), all = true)
+    fun applyMask(id: String) = apply(editor.applyMask(id), all = true)
+    fun setEditingMask(on: Boolean) = apply(editor.setEditingMask(on))
+    val editingMask: Boolean get() = doc.activeLayer?.let { doc.paintsMask(it) } ?: false
+
+    /** A layer's mask, white where it shows: [width, height, pixels...], or [0, 0] if none. */
+    fun maskThumbnail(id: String, maxSize: Int): IntArray {
+        val (px, w, h) = Compositor.maskThumbnail(doc, id, maxSize) ?: return intArrayOf(0, 0)
+        toRgba(px)
+        return intArrayOf(w, h) + px
+    }
+
+    // ---- Layer groups -----------------------------------------------------------------------------
+
+    fun groupLayer(id: String, withBelow: Boolean) = apply(editor.groupLayer(id, withBelow), all = true)
+    fun ungroup(groupId: String) = apply(editor.ungroup(groupId), all = true)
+    fun removeFromGroup(id: String) = apply(editor.removeFromGroup(id), all = true)
+    fun moveGroup(groupId: String, up: Boolean) = apply(editor.moveGroup(groupId, up), all = true)
+    fun deleteGroup(groupId: String) = apply(editor.deleteGroup(groupId), all = true)
+    fun flattenGroup(groupId: String) = apply(editor.flattenGroup(groupId), all = true)
+
+    fun setGroupProps(groupId: String, name: String, visible: Boolean, opacity: Float) {
+        groupPreviewBefore?.let { (gid, before) -> doc.groups[gid] = before }
+        groupPreviewBefore = null
+        apply(editor.setGroupProps(groupId) { GroupProps(name, visible, opacity.coerceIn(0f, 1f)) }, all = true)
+    }
+
+    private var groupPreviewBefore: Pair<String, GroupProps>? = null
+
+    /** Live group opacity while a slider moves; finish with [setGroupProps]. */
+    fun previewGroupOpacity(groupId: String, opacity: Float) {
+        val g = doc.groups[groupId] ?: return
+        if (groupPreviewBefore == null) groupPreviewBefore = groupId to g
+        doc.groups[groupId] = g.copy(opacity = opacity.coerceIn(0f, 1f))
+        apply(Change(doc.bounds, false), all = true)
+    }
+
+    // ---- Selections -------------------------------------------------------------------------------
+
+    private fun mode(m: Int) = when (m) {
+        1 -> Editor.SelectMode.ADD
+        2 -> Editor.SelectMode.SUBTRACT
+        else -> Editor.SelectMode.REPLACE
+    }
+
+    /** A closed outline, x0, y0, x1, y1... in canvas pixels. mode: 0 replace, 1 add, 2 subtract. */
+    fun selectPolygon(xy: FloatArray, mode: Int) = apply(editor.selectPolygon(xy, mode(mode)), all = true)
+    fun selectSimilar(x: Int, y: Int, tolerance: Float, allLayers: Boolean, mode: Int) =
+        apply(editor.selectSimilar(x, y, tolerance, allLayers, mode(mode)), all = true)
+    fun selectAll() = apply(editor.selectAll(), all = true)
+    fun deselect() = apply(editor.deselect(), all = true)
+    fun invertSelection() = apply(editor.invertSelection(), all = true)
+    fun clearSelected() = apply(editor.clearSelected(), doc.activeLayerId)
+    fun fillSelection(color: Int) = apply(editor.fillSelection(color), doc.activeLayerId)
+    fun fillPolygon(xy: FloatArray, color: Int) = apply(editor.fillPolygon(xy, color), doc.activeLayerId)
+    fun selectionToNewLayer(cut: Boolean) = apply(editor.selectionToNewLayer(cut), all = true)
+    val hasSelection: Boolean get() = doc.selection != null
+
+    /** Bumped whenever the selection changes, so the page knows to fetch a new outline. */
+    val selectionStamp: Double get() = (doc.selection?.hashCode() ?: 0).toDouble()
+
+    var gridWidth: Int = 0
+        private set
+    var gridHeight: Int = 0
+        private set
+    var gridStep: Int = 1
+        private set
+
+    /**
+     * The selection's coverage on a grid no bigger than [maxSide] (0..255 per cell, sampled at
+     * cell centres), for drawing marching ants. Empty if nothing is selected.
+     */
+    fun selectionGrid(maxSide: Int): ByteArray {
+        val sel = doc.selection ?: return ByteArray(0)
+        val step = maxOf(1, (maxOf(doc.width, doc.height) + maxSide - 1) / maxSide)
+        val gw = (doc.width + step - 1) / step
+        val gh = (doc.height + step - 1) / step
+        gridWidth = gw; gridHeight = gh; gridStep = step
+        val out = ByteArray(gw * gh)
+        val half = step / 2
+        for (y in 0 until gh) {
+            val sy = minOf(doc.height - 1, y * step + half)
+            for (x in 0 until gw) out[y * gw + x] = sel.at(minOf(doc.width - 1, x * step + half), sy).toByte()
+        }
+        return out
+    }
+
+    // ---- Move and transform -----------------------------------------------------------------------
+
+    /** Starts moving the active layer (or the selected part). Returns its bounds, or empty. */
+    fun beginTransform(): IntArray {
+        val r = editor.beginTransform() ?: return IntArray(0)
+        apply(editor.takeSettledChange(), all = true)
+        // The session lifts the pixels off the layer; draw them back where they are straight away.
+        apply(editor.previewTransform(Affine()), doc.activeLayerId)
+        return intArrayOf(r.left, r.top, r.right, r.bottom)
+    }
+
+    private fun quality(q: Int) = Resample.entries.getOrElse(q) { Resample.SMOOTH }
+
+    fun previewTransform(a: Float, b: Float, c: Float, d: Float, tx: Float, ty: Float, quality: Int) =
+        apply(editor.previewTransform(Affine(a, b, c, d, tx, ty), quality(quality)), doc.activeLayerId)
+
+    fun commitTransform(a: Float, b: Float, c: Float, d: Float, tx: Float, ty: Float, quality: Int) =
+        apply(editor.commitTransform(Affine(a, b, c, d, tx, ty), quality(quality)), all = true)
+
+    fun cancelTransform() = apply(editor.cancelTransform(), doc.activeLayerId)
+    val isTransforming: Boolean get() = editor.isTransforming
+
+    // ---- Adjustments ------------------------------------------------------------------------------
+
+    /** Starts an adjustment (an [Adjustment] name) on the active layer. False if there's nothing to adjust. */
+    fun beginAdjust(kind: String): Boolean {
+        val k = Adjustment.entries.firstOrNull { it.name == kind } ?: return false
+        val ok = editor.beginAdjust(k)
+        apply(editor.takeSettledChange(), all = true)
+        return ok
+    }
+
+    fun previewAdjust(a: Float, b: Float, c: Float) = apply(editor.previewAdjust(a, b, c), doc.activeLayerId)
+    fun commitAdjust() = apply(editor.commitAdjust(), all = true)
+    fun cancelAdjust() = apply(editor.cancelAdjust(), doc.activeLayerId)
+    val isAdjusting: Boolean get() = editor.isAdjusting
+
+    // ---- Liquify ----------------------------------------------------------------------------------
+
+    fun beginLiquify(mode: String, size: Float, strength: Float, x: Float, y: Float, pressure: Float) {
+        val m = LiquifyMode.entries.firstOrNull { it.name == mode } ?: LiquifyMode.PUSH
+        apply(editor.beginLiquify(m, size, strength, x, y, pressure), all = true)
+        apply(editor.takeSettledChange(), all = true)
+    }
+
+    fun liquifyTo(x: Float, y: Float, pressure: Float) = apply(editor.liquifyTo(x, y, pressure), doc.activeLayerId)
+    fun endLiquify() = apply(editor.endLiquify(), all = true)
+
+    // ---- Photoshop files --------------------------------------------------------------------------
+
+    /** The drawing as a layered .psd file. */
+    fun exportPsd(): ByteArray = PsdWriter.encode(doc)
 
     /** Adds a picture as a new layer, centred. Pixels are RGBA bytes (ABGR ints). */
     fun addImageLayer(name: String, rgba: IntArray, width: Int, height: Int) {
@@ -288,6 +457,16 @@ class WebEditor private constructor(private val doc: Document) {
                 put("blendMode", l.blendMode.name)
                 put("alphaLock", l.alphaLock)
                 put("clipping", l.clipping)
+                put("group", l.group)
+                put("mask", l.mask != null)
+            }
+        }))
+        put("groups", JsonArray(doc.groups.map { (id, g) ->
+            buildJsonObject {
+                put("id", id)
+                put("name", g.name)
+                put("visible", g.visible)
+                put("opacity", g.opacity)
             }
         }))
     }.toString()
@@ -295,7 +474,16 @@ class WebEditor private constructor(private val doc: Document) {
     /** A layer's painted tiles: [count, then index and 4096 premultiplied ARGB pixels per tile]. */
     fun layerData(id: String): IntArray {
         val layer = doc.layer(id) ?: return IntArray(1)
-        val s = layer.surface
+        return surfaceData(layer.surface)
+    }
+
+    /** The layer's mask in the same form as [layerData], or empty if it has none. */
+    fun maskData(id: String): IntArray {
+        val mask = doc.layer(id)?.mask ?: return IntArray(0)
+        return surfaceData(mask)
+    }
+
+    private fun surfaceData(s: TiledSurface): IntArray {
         val indices = s.nonEmptyTileIndices()
         val per = TiledSurface.TILE * TiledSurface.TILE
         val out = IntArray(1 + indices.size * (1 + per))
@@ -312,8 +500,18 @@ class WebEditor private constructor(private val doc: Document) {
     /** Puts back a saved layer on top of the stack (used when opening a project). */
     fun restoreLayer(
         id: String, name: String, visible: Boolean, opacity: Float, blendMode: String,
-        alphaLock: Boolean, clipping: Boolean, data: IntArray,
+        alphaLock: Boolean, clipping: Boolean, data: IntArray, group: String, maskData: IntArray,
     ) {
+        val surface = surfaceFrom(data)
+        val mask = if (maskData.isEmpty()) null else surfaceFrom(maskData)
+        doc.layers.add(Layer(id, props(name, visible, opacity, blendMode, alphaLock, clipping).copy(group = group), surface, mask))
+    }
+
+    fun restoreGroup(id: String, name: String, visible: Boolean, opacity: Float) {
+        doc.groups[id] = GroupProps(name, visible, opacity.coerceIn(0f, 1f))
+    }
+
+    private fun surfaceFrom(data: IntArray): TiledSurface {
         val surface = TiledSurface(doc.width, doc.height)
         val per = TiledSurface.TILE * TiledSurface.TILE
         if (data.isNotEmpty()) {
@@ -327,12 +525,15 @@ class WebEditor private constructor(private val doc: Document) {
                 o += per
             }
         }
-        doc.layers.add(Layer(id, props(name, visible, opacity, blendMode, alphaLock, clipping), surface))
+        return surface
     }
 
     /** Finishes opening a project: picks the active layer and makes sure there is one layer. */
     fun finishRestore(activeLayerId: String) {
         if (doc.layers.isEmpty()) doc.layers.add(doc.createLayer("Layer 1"))
+        val used = doc.layers.mapTo(HashSet()) { it.group }
+        doc.groups.keys.retainAll(used)
+        for (l in doc.layers) if (l.group.isNotEmpty() && !doc.groups.containsKey(l.group)) l.props = l.props.copy(group = "")
         doc.activeLayerId = if (doc.layer(activeLayerId) != null) activeLayerId else doc.layers.last().id
         dirty = doc.bounds
         structure = true
@@ -346,6 +547,23 @@ class WebEditor private constructor(private val doc: Document) {
                 it.dirty = it.doc.bounds
                 it.markAll()
             }
+
+        /** Last warnings from [fromPsd], joined by new lines. */
+        var psdWarnings: String = ""
+            private set
+
+        /** Opens a Photoshop file; throws with a readable message if it can't. */
+        fun fromPsd(bytes: ByteArray, maxSide: Int): WebEditor {
+            val result = PsdReader.read(bytes, maxSide)
+            psdWarnings = result.warnings.joinToString("\n")
+            return WebEditor(result.doc).also {
+                if (it.doc.layers.isEmpty()) it.doc.layers.add(it.doc.createLayer("Layer 1"))
+                if (it.doc.layer(it.doc.activeLayerId) == null) it.doc.activeLayerId = it.doc.layers.last().id
+                it.dirty = it.doc.bounds
+                it.structure = true
+                it.markAll()
+            }
+        }
 
         /** An empty document to fill with [restoreLayer] and [finishRestore]. */
         fun forRestore(width: Int, height: Int, paperColor: Int, paperVisible: Boolean): WebEditor =
