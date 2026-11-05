@@ -103,6 +103,25 @@ enum class TipShape(val displayName: String, val stamp: Boolean = false) {
     HATCH("Hatching", true),
     CROSS("Cross", true),
     MOON("Crescent", true),
+    // Rows of dots across the stroke: spaced at their own pitch they paint a band of dot rows.
+    DOT_ROWS_2("2 rows of dots", true),
+    DOT_ROWS_3("3 rows of dots", true),
+    DOT_ROWS_5("5 rows of dots", true),
+    DOT_STAGGER("Staggered dots", true),
+    DOT_FADE("Fading dot rows", true),
+    SQUARE_ROWS("Rows of squares", true),
+    DIAMOND("Diamond", true),
+    PENTAGON("Pentagon", true),
+    HEXAGON("Hexagon", true),
+    DROP("Teardrop", true),
+    TARGET("Target", true),
+    SPIRAL("Spiral", true),
+    // Rakes and rollers: wide across the stroke, thin along it, dragged to leave parallel tracks.
+    RAKE_FINE("Fine rake", true),
+    RAKE_WIDE("Wide rake", true),
+    RAKE_UNEVEN("Uneven rake", true),
+    ROLLER("Roller", true),
+    ROLLER_STRIPES("Striped roller", true),
 }
 
 /** Paper and canvas textures used as brush grain. */

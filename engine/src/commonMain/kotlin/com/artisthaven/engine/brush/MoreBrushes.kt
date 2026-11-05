@@ -33,12 +33,37 @@ internal object MoreBrushes {
         pressureSize = pressureSize, pressureOpacity = 0.2f,
     )
 
+    /** Rows of evenly spaced dots running along the stroke. [spacing] is the dot pitch. */
+    private fun dots(id: String, name: String, tip: T, size: Float, spacing: Float, hue: Float = 0f) = BrushPreset(
+        id = id, name = name, category = C.STAMPS,
+        defaultSize = size, maxSize = 400f,
+        tip = tip, hardness = 1f, tipAngle = A.FOLLOW_STROKE, spacing = spacing, streamline = 0.5f,
+        hueJitter = hue, buildUp = true, pressureSize = 0.15f,
+    )
+
+    /** Teeth side by side across the stroke, dragged into parallel lines. */
+    private fun rake(id: String, name: String, tip: T, size: Float) = BrushPreset(
+        id = id, name = name, category = C.RAKES,
+        defaultSize = size, maxSize = 400f,
+        tip = tip, hardness = 0.9f, tipAngle = A.FOLLOW_STROKE, spacing = 0.02f, streamline = 0.3f,
+        taperStart = 0.5f, taperEnd = 1.5f, taperMinSize = 0.5f, pressureSize = 0.35f, pressureOpacity = 0.2f,
+    )
+
+    /** A paint roller: a wide even band, square ends, the nap's texture streaked along it. */
+    private fun roller(id: String, name: String, tip: T, grain: G, depth: Float, flow: Float = 0.9f, tooth: Float = 0f, hardness: Float = 0.95f) = BrushPreset(
+        id = id, name = name, category = C.RAKES,
+        defaultSize = 90f, maxSize = 600f,
+        tip = tip, hardness = hardness, tipAngle = A.FOLLOW_STROKE, spacing = 0.03f, streamline = 0.4f,
+        grain = grain, grainScale = 1.2f, grainDepth = depth, tooth = tooth, flow = flow,
+        pressureSize = 0f, pressureOpacity = 0.25f,
+    )
+
     /** Fills the stroke with a repeating pattern fixed to the canvas. */
-    private fun pattern(g: G, name: String) = BrushPreset(
+    private fun pattern(g: G, name: String, scale: Float = 1f) = BrushPreset(
         id = "pattern_" + g.name.lowercase(), name = name, category = C.PATTERNS,
         defaultSize = 90f, maxSize = 600f,
         tip = T.ROUND, hardness = 0.8f, spacing = 0.05f, streamline = 0.2f,
-        grain = g, grainScale = 1f, grainDepth = 1f,
+        grain = g, grainScale = scale, grainDepth = 1f,
         pressureSize = 0.25f, pressureOpacity = 0.15f,
     )
 
@@ -323,6 +348,22 @@ internal object MoreBrushes {
             pressureSize = 0.4f, smudgeStrength = 0.7f,
         ),
 
+        // ---- Rakes & Rollers ----
+        rake("fine_rake", "Fine Rake", T.RAKE_FINE, 40f),
+        rake("wide_rake", "Wide Rake", T.RAKE_WIDE, 60f),
+        rake("uneven_rake", "Worn Rake", T.RAKE_UNEVEN, 50f),
+        BrushPreset(
+            id = "wet_rake", name = "Wet Rake", category = C.RAKES,
+            defaultSize = 50f, maxSize = 300f,
+            tip = T.RAKE, tipAngle = A.FOLLOW_STROKE, spacing = 0.02f, streamline = 0.3f,
+            renderMode = R.WET, flow = 0.85f, charge = 0.75f, pull = 0.5f,
+            taperEnd = 1.5f, taperMinSize = 0.5f, pressureSize = 0.3f, pressureFlow = 0.4f,
+        ),
+        roller("paint_roller", "Paint Roller", T.ROLLER, grain = G.CANVAS, depth = 0.5f),
+        roller("foam_roller", "Foam Roller", T.ROLLER, grain = G.NONE, depth = 0f, flow = 0.6f, hardness = 0.45f),
+        roller("dry_roller", "Dry Roller", T.ROLLER, grain = G.CHALK, depth = 0.85f, tooth = 0.7f),
+        roller("stripe_roller", "Stripe Roller", T.ROLLER_STRIPES, grain = G.NONE, depth = 0f),
+
         // ---- Watercolour ----
         BrushPreset(
             id = "big_wash", name = "Big Wash", category = C.WATERCOLOR,
@@ -543,7 +584,7 @@ internal object MoreBrushes {
         pattern(G.CHEVRON, "Chevron"),
         pattern(G.PLAID, "Plaid"),
         pattern(G.TWILL, "Denim"),
-        pattern(G.WOOD, "Wood Grain"),
+        pattern(G.WOOD, "Wood Grain", scale = 3f),
         pattern(G.MARBLE, "Marble Veins"),
         pattern(G.CRACKLE, "Crackle"),
         pattern(G.LEOPARD, "Leopard"),
@@ -565,6 +606,24 @@ internal object MoreBrushes {
         stamp("stamp_flowers", "Flowers", C.STAMPS, T.FLOWER, 34f, spacing = 1.3f, sizeJitter = 0.4f, hue = 0.08f, bright = 0.1f),
         stamp("stamp_squares", "Squares", C.STAMPS, T.SQUARE, 26f, spacing = 1.3f, rotation = 0f, sizeJitter = 0.2f, hardness = 1f),
         stamp("stamp_geometric", "Geometric Mix", C.STAMPS, T.TRIANGLE, 30f, spacing = 1f, scatter = 1.2f, sizeJitter = 0.8f, hue = 0.4f),
+        // Rows of dots: the tip is a line of dots across the stroke, stamped every dot pitch.
+        dots("dot_rows_2", "Double Dot Row", T.DOT_ROWS_2, 40f, 0.85f),
+        dots("dot_rows_3", "Dot Rows", T.DOT_ROWS_3, 50f, 0.43f),
+        dots("dot_rows_5", "Dot Band", T.DOT_ROWS_5, 70f, 0.21f),
+        dots("dot_stagger", "Packed Dots", T.DOT_STAGGER, 70f, 0.2f),
+        dots("dot_fade", "Fading Dots", T.DOT_FADE, 70f, 0.2f),
+        dots("rainbow_dots", "Rainbow Dots", T.DOT_ROWS_5, 70f, 0.32f, hue = 1f),
+        dots("square_rows", "Square Rows", T.SQUARE_ROWS, 50f, 0.3f),
+        stamp("dot_cloud", "Dot Cloud", C.STAMPS, T.ROUND, 10f, spacing = 0.8f, scatter = 2.5f, count = 4,
+            rotation = 0f, sizeJitter = 0f, hardness = 1f, flip = 0f, pressureSize = 0.3f),
+        stamp("dot_confetti", "Confetti Dots", C.STAMPS, T.ROUND, 12f, spacing = 0.8f, scatter = 2.5f, count = 3,
+            rotation = 0f, sizeJitter = 0.6f, hardness = 1f, flip = 0f, hue = 1f),
+        stamp("stamp_diamonds", "Diamonds", C.STAMPS, T.DIAMOND, 30f, spacing = 1.3f, rotation = 0f, sizeJitter = 0.25f, flip = 0f),
+        stamp("stamp_pentagons", "Pentagons", C.STAMPS, T.PENTAGON, 30f, spacing = 1.3f, rotation = 36f, sizeJitter = 0.3f),
+        stamp("stamp_hexagons", "Hexagons", C.STAMPS, T.HEXAGON, 30f, spacing = 1.15f, rotation = 0f, sizeJitter = 0f, flip = 0f, hardness = 1f),
+        stamp("stamp_drops", "Raindrops", C.STAMPS, T.DROP, 26f, spacing = 1.2f, rotation = 15f, sizeJitter = 0.4f, scatter = 0.6f),
+        stamp("stamp_targets", "Targets", C.STAMPS, T.TARGET, 40f, spacing = 1.3f, rotation = 0f, sizeJitter = 0.3f, flip = 0f),
+        stamp("stamp_spirals", "Spirals", C.STAMPS, T.SPIRAL, 40f, spacing = 1.3f, sizeJitter = 0.3f),
         stamp("stamp_halftone", "Halftone Blob", C.STAMPS, T.DOTS, 80f, spacing = 0.8f, rotation = 0f, sizeJitter = 0.1f, hardness = 1f),
 
         // ---- Nature ----

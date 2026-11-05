@@ -446,7 +446,7 @@ class StrokeSession(
     ): IRect? {
         // A flat brush's footprint depends on the stroke direction, which the first dab doesn't
         // know yet; drawn anyway, it leaves a pale square at the start of the stroke.
-        if (first && (bristly || brush.roundness < 0.7f) && brush.tipAngle == TipAngle.FOLLOW_STROKE) {
+        if (first && (bristly || brush.roundness < 0.7f || brush.tip.stamp) && brush.tipAngle == TipAngle.FOLLOW_STROKE) {
             if (s === paths.first()) heldFirstDab = s to p
             return null
         }
