@@ -212,14 +212,16 @@ class EngineTest {
             draw(editor, TestSupport.sCurve(20f, 15f, 220f, 90f), StrokeParams(brush, color = 0xFF263238.toInt(), size = 26f, usePressure = true))
             brush.name to snapshot(doc)
         }
+        val same = ArrayList<String>()
         for (i in renders.indices) for (j in i + 1 until renders.size) {
             val a = renders[i].second
             val b = renders[j].second
             var diff = 0L
             for (k in a.indices) diff += kotlin.math.abs(Pixels.red(a[k]) - Pixels.red(b[k]))
             val mean = diff.toDouble() / a.size
-            assertTrue("${renders[i].first} and ${renders[j].first} look the same ($mean)", mean > 1.0)
+            if (mean <= 1.0) same += "${renders[i].first} and ${renders[j].first} (${"%.2f".format(mean)})"
         }
+        assertTrue("These brushes look the same: ${same.joinToString("; ")}", same.isEmpty())
     }
 
     @Test

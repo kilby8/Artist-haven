@@ -38,6 +38,11 @@ if ((settings.version | 0) < 2) {
 function readJson(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 }
+// Brushes made in the Brush Studio, as a JSON array (the engine's brush format).
+let customBrushes = readJson('ah.customBrushes', []);
+function saveCustomBrushes() {
+  try { localStorage.setItem('ah.customBrushes', JSON.stringify(customBrushes)); } catch { toast('Could not save your brushes in this browser'); }
+}
 let settingsTimer = 0;
 function saveSettings() {
   clearTimeout(settingsTimer);
@@ -158,6 +163,7 @@ const docCanvas = $('#doc');
 const offscreen = docCanvas.transferControlToOffscreen();
 let brushes = [];
 let blendModes = [];
+let brushOptions = null;
 const waiters = new Map();
 
 function call(t, msg = {}, transfer = []) { worker.postMessage({ t, ...msg }, transfer); }
@@ -168,7 +174,8 @@ worker.onmessage = (e) => {
   const w = waiters.get(m.t);
   if (w) { waiters.delete(m.t); w(m); }
   switch (m.t) {
-    case 'ready': brushes = m.brushes; blendModes = m.blendModes; break;
+    case 'ready': brushes = m.brushes; blendModes = m.blendModes; brushOptions = m.brushOptions; break;
+    case 'brushes': brushes = m.brushes; if (!$('#p-brushes').hidden) renderBrushes(); break;
     case 'state': onDocState(m); break;
     case 'opened': onOpened(m); break;
     case 'snapped': input.snapped = true; break;
@@ -184,23 +191,44 @@ worker.onmessage = (e) => {
   }
 };
 
-// Brush previews come from a second worker so they never hold up the pen.
+// Brush previews come from a second worker so they never hold up the pen. They are painted on
+// demand, a category at a time, so a big library doesn't keep the worker busy.
 const previews = new Map();
+const previewsAsked = new Set();
 let previewWorker = null;
+let previewReady = null;
+let studioPreviewSerial = 0;
+const PREVIEW = { width: 480, height: 72, color: 0xFFF2F2F2 | 0, background: 0xFF2B2B31 | 0 };
 function startPreviews() {
-  if (previewWorker) return;
+  if (previewWorker) return previewReady;
   previewWorker = new Worker('worker.js', { type: 'module' });
-  previewWorker.onmessage = (e) => {
-    const m = e.data;
-    if (m.t === 'ready') {
-      previewWorker.postMessage({ t: 'previews', ids: brushes.map(b => b.id), width: 480, height: 72, color: 0xFFF2F2F2 | 0, background: 0xFF2B2B31 | 0 });
-    } else if (m.t === 'preview') {
-      previews.set(m.id, m.bitmap);
-      const c = document.querySelector(`.brush-item[data-id="${m.id}"] canvas`);
-      if (c) drawPreview(c, m.bitmap);
-    }
-  };
-  previewWorker.postMessage({ t: 'init' });
+  previewReady = new Promise((resolve) => {
+    previewWorker.onmessage = (e) => {
+      const m = e.data;
+      if (m.t === 'ready') resolve();
+      else if (m.t === 'preview') {
+        previews.set(m.id, m.bitmap);
+        const c = document.querySelector(`.brush-item[data-id="${m.id}"] canvas`);
+        if (c) drawPreview(c, m.bitmap);
+      } else if (m.t === 'studioPreview') onStudioPreview(m);
+    };
+  });
+  previewWorker.postMessage({ t: 'init', customBrushes: JSON.stringify(customBrushes) });
+  return previewReady;
+}
+async function requestPreviews(ids) {
+  const want = ids.filter(id => !previewsAsked.has(id));
+  if (!want.length) return;
+  want.forEach(id => previewsAsked.add(id));
+  await startPreviews();
+  previewWorker.postMessage({ t: 'previews', ids: want, ...PREVIEW });
+}
+/** Tells both workers about the user's brushes, and repaints their previews. */
+function pushCustomBrushes(changedIds = []) {
+  const json = JSON.stringify(customBrushes);
+  call('setCustomBrushes', { json });
+  if (previewWorker) previewWorker.postMessage({ t: 'setCustomBrushes', json });
+  for (const id of changedIds) { previews.delete(id); previewsAsked.delete(id); }
 }
 
 // ---- Gallery ---------------------------------------------------------------------------------
@@ -665,18 +693,30 @@ function renderBrushes() {
   }
   const list = $('#brush-list');
   list.textContent = '';
-  for (const b of brushes.filter(x => x.category === brushCategory)) {
-    const item = document.createElement('button');
+  const shown = brushes.filter(x => x.category === brushCategory);
+  requestPreviews(shown.map(b => b.id));
+  $('#brush-count').textContent = `${brushes.length} brushes`;
+  for (const b of shown) {
+    const item = document.createElement('div');
     item.className = 'brush-item';
+    item.tabIndex = 0;
     item.dataset.id = b.id;
     item.classList.toggle('active', b.id === active);
-    const name = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'brush-item-head';
+    const name = document.createElement('span');
     name.textContent = b.name;
+    const edit = document.createElement('button');
+    edit.className = 'edit-brush';
+    edit.title = 'Adjust this brush in the Brush Studio';
+    edit.textContent = 'Adjust';
+    edit.addEventListener('click', (e) => { e.stopPropagation(); openStudio(b.id); });
+    head.append(name, edit);
     const c = document.createElement('canvas');
     c.width = 480; c.height = 72;
     const bmp = previews.get(b.id);
     if (bmp) drawPreview(c, bmp);
-    item.append(name, c);
+    item.append(head, c);
     item.addEventListener('click', () => {
       settings.brushes[slot] = b.id;
       saveSettings();
@@ -692,6 +732,241 @@ function drawPreview(c, bmp) {
   x.clearRect(0, 0, c.width, c.height);
   x.drawImage(bmp, 0, 0, c.width, c.height);
 }
+
+// ---- Brush Studio ----------------------------------------------------------------------------
+// Every setting of a brush, grouped like Procreate's Brush Studio and Photoshop's Brush Settings.
+// Built-in brushes are never changed: saving one makes a copy under My brushes.
+
+const S = (key, label, min, max, step = 0.01, hint = '') => ({ type: 'range', key, label, min, max, step, hint });
+const SEL = (key, label, options) => ({ type: 'select', key, label, options });
+const CHK = (key, label, hint = '') => ({ type: 'check', key, label, hint });
+const STUDIO_GROUPS = [
+  { title: 'Size & opacity', fields: [
+    S('defaultSize', 'Starting size (px)', 1, 600, 1), S('maxSize', 'Largest size (px)', 4, 1000, 1),
+    S('defaultOpacity', 'Starting opacity', 0, 1), S('flow', 'Flow (paint per dab)', 0.01, 1),
+  ] },
+  { title: 'Tip shape', fields: [
+    SEL('tip', 'Tip', 'tip'), S('hardness', 'Hardness (edge)', 0, 1), S('roundness', 'Roundness', 0.05, 1),
+    SEL('tipAngle', 'Tip angle follows', 'tipAngle'), S('angleDegrees', 'Angle (°)', 0, 180, 1),
+  ] },
+  { title: 'Stroke path', fields: [
+    S('spacing', 'Spacing (× size)', 0.01, 3), S('streamline', 'StreamLine (smoothing)', 0, 0.97),
+    S('taperStart', 'Taper at start', 0, 10, 0.1), S('taperEnd', 'Taper at end', 0, 14, 0.1), S('taperMinSize', 'Taper tip size', 0, 1),
+  ] },
+  { title: 'Jitter & scatter', fields: [
+    S('scatter', 'Scatter (× size)', 0, 4), S('count', 'Dabs per step', 1, 16, 1),
+    S('sizeJitter', 'Size jitter', 0, 1), S('opacityJitter', 'Opacity jitter', 0, 1),
+    S('rotationJitter', 'Rotation jitter (°)', 0, 180, 1), S('lateralJitter', 'Wobble across the stroke', 0, 1.5),
+    S('roundnessJitter', 'Squash jitter', 0, 1), S('flipJitter', 'Mirror at random', 0, 1),
+  ] },
+  { title: 'Colour dynamics', fields: [
+    S('hueJitter', 'Hue jitter', 0, 1), S('saturationJitter', 'Saturation jitter', 0, 1), S('brightnessJitter', 'Brightness jitter', 0, 1),
+    CHK('colourJitterPerStroke', 'Change colour once per stroke, not every dab'),
+  ] },
+  { title: 'Grain & pattern', fields: [
+    SEL('grain', 'Texture', 'grain'), S('grainDepth', 'Depth', 0, 1), S('grainScale', 'Scale', 0.2, 4),
+    S('tooth', 'Paper tooth (dry media)', 0, 1), S('dust', 'Dust around the edge', 0, 1),
+    CHK('grainMoving', 'Texture moves with the brush'), CHK('grainInvert', 'Invert texture'),
+  ] },
+  { title: 'Rendering', fields: [
+    SEL('renderMode', 'Paint behaves like', 'renderMode'), SEL('blendMode', 'Blend mode', 'blendMode'),
+    CHK('buildUp', 'Build up: dabs paint over each other (stamps, sprays)'),
+  ] },
+  { title: 'Pressure, tilt & speed', fields: [
+    S('pressureGamma', 'Pressure curve (soft ← → firm)', 0.3, 3), S('pressureSize', 'Pressure → size', 0, 1),
+    S('pressureOpacity', 'Pressure → opacity', 0, 1), S('pressureFlow', 'Pressure → flow', 0, 1),
+    S('tiltSize', 'Tilt → size', 0, 4, 0.05), S('tiltOpacity', 'Tilt → lighter', 0, 1),
+    S('speedSize', 'Speed → thinner', 0, 1), S('speedOpacity', 'Speed → lighter', 0, 1),
+  ] },
+  { title: 'Wet paint', when: (b) => b.renderMode === 'WET', fields: [
+    S('charge', 'Paint load', 0, 1), S('dilution', 'Dilution', 0, 1), S('pull', 'Pull (drags colour)', 0, 1),
+    S('dryOut', 'Dry-out streaks', 0, 1), S('streakColour', 'Bristle colour variation', 0, 1),
+    S('impasto', 'Bristle shading', 0, 1), S('relief', 'Thick paint relief', 0, 1),
+  ] },
+  { title: 'Watercolour', when: (b) => b.renderMode === 'WASH', fields: [
+    S('edgeDarken', 'Dark edges', 0, 1), S('granulation', 'Granulation', 0, 1),
+    S('pigmentFlow', 'Pigment flow', 0, 1), S('edgeWobble', 'Ragged edge', 0, 1),
+  ] },
+  { title: 'Mixer brush', when: (b) => b.renderMode === 'MIXER', fields: [
+    S('mixerWet', 'Wet (picks up canvas)', 0, 1), S('mixerLoad', 'Load', 0, 1), S('mixerMix', 'Mix', 0, 1),
+    CHK('mixerSampleAll', 'Pick up from all layers'), CHK('mixerClean', 'Clean the brush after each stroke'),
+  ] },
+  { title: 'Smudging', fields: [
+    CHK('blendOnly', 'Blender: moves paint without adding colour'), CHK('soften', 'Soften instead of drag'),
+    S('smudgeStrength', 'Strength with the Smudge tool', 0, 1),
+  ] },
+];
+
+let studio = null; // { original, brush, sourceId, isCustom }
+let studioPreviewBusy = false;
+let studioPreviewAgain = false;
+
+async function openStudio(id) {
+  const ready = waitFor('brushJson');
+  call('brushJson', { id });
+  const m = await ready;
+  const brush = JSON.parse(m.json);
+  studio = { original: m.json, brush, sourceId: id, isCustom: customBrushes.some(b => b.id === id) };
+  closePanels();
+  $('#p-studio').hidden = false;
+  renderStudio();
+}
+
+function renderStudio() {
+  const b = studio.brush;
+  $('#studio-name').value = b.name;
+  $('#studio-save').hidden = !studio.isCustom;
+  $('#studio-delete').hidden = !studio.isCustom;
+  $('#studio-copy').textContent = studio.isCustom ? 'Save as copy' : 'Save as my brush';
+  const body = $('#studio-body');
+  const scroll = body.scrollTop;
+  body.textContent = '';
+  for (const g of STUDIO_GROUPS) {
+    if (g.when && !g.when(b)) continue;
+    const sec = document.createElement('section');
+    const h = document.createElement('h3');
+    h.textContent = g.title;
+    sec.append(h);
+    for (const f of g.fields) sec.append(studioField(f, b));
+    body.append(sec);
+  }
+  body.scrollTop = scroll;
+  studioPreview();
+}
+
+function studioField(f, b) {
+  const row = document.createElement('label');
+  row.className = 'studio-field ' + f.type;
+  const name = document.createElement('span');
+  name.textContent = f.label;
+  row.append(name);
+  if (f.type === 'range') {
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = f.min; input.max = f.max; input.step = f.step;
+    input.value = b[f.key];
+    const out = document.createElement('output');
+    const show = () => { out.textContent = f.step >= 1 ? String(Math.round(b[f.key])) : (+b[f.key]).toFixed(2); };
+    show();
+    input.addEventListener('input', () => {
+      b[f.key] = f.step >= 1 ? Math.round(+input.value) : +input.value;
+      show();
+      studioPreview();
+    });
+    row.append(input, out);
+  } else if (f.type === 'select') {
+    const sel = document.createElement('select');
+    for (const o of brushOptions[f.options]) {
+      const opt = document.createElement('option');
+      opt.value = o.id; opt.textContent = o.name;
+      sel.append(opt);
+    }
+    sel.value = b[f.key];
+    sel.addEventListener('change', () => {
+      b[f.key] = sel.value;
+      if (f.key === 'tip') b.tipImage = null;
+      // Some groups only apply to one kind of paint.
+      if (f.key === 'renderMode') renderStudio(); else studioPreview();
+    });
+    row.append(sel);
+  } else {
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = !!b[f.key];
+    box.addEventListener('change', () => { b[f.key] = box.checked; studioPreview(); });
+    row.append(box);
+  }
+  return row;
+}
+
+/** Repaints the preview with the real engine, at most one request in flight. */
+async function studioPreview() {
+  if (studioPreviewBusy) { studioPreviewAgain = true; return; }
+  studioPreviewBusy = true;
+  await startPreviews();
+  previewWorker.postMessage({ t: 'previewJson', json: JSON.stringify(studio.brush), serial: ++studioPreviewSerial, width: 960, height: 160, color: PREVIEW.color, background: PREVIEW.background });
+}
+function onStudioPreview(m) {
+  const c = $('#studio-preview');
+  c.getContext('2d').drawImage(m.bitmap, 0, 0, c.width, c.height);
+  studioPreviewBusy = false;
+  if (studioPreviewAgain && studio) { studioPreviewAgain = false; studioPreview(); }
+}
+
+function closeStudio() {
+  $('#p-studio').hidden = true;
+  studio = null;
+}
+
+function useBrush(id) {
+  const slot = slotFor(tool);
+  settings.brushes[slot] = id;
+  saveSettings();
+  if (!paintTools.includes(tool)) tool = slot;
+  updateToolUi();
+}
+
+function saveStudio(asCopy) {
+  const b = { ...studio.brush, name: $('#studio-name').value.trim() || studio.brush.name };
+  if (asCopy) {
+    b.id = 'mine_' + Date.now().toString(36);
+    b.category = 'MINE';
+    if (studio.isCustom && b.name === JSON.parse(studio.original).name) b.name += ' copy';
+    b.importedFrom = null;
+    customBrushes.unshift(b);
+  } else {
+    const i = customBrushes.findIndex(x => x.id === b.id);
+    if (i >= 0) customBrushes[i] = b; else customBrushes.unshift(b);
+  }
+  saveCustomBrushes();
+  pushCustomBrushes([b.id]);
+  useBrush(b.id);
+  toast(asCopy ? `Saved “${b.name}” in My brushes` : `Saved “${b.name}”`);
+  closeStudio();
+  brushCategory = 'MINE';
+}
+
+$('#studio-close').addEventListener('click', closeStudio);
+$('#studio-reset').addEventListener('click', () => { studio.brush = JSON.parse(studio.original); renderStudio(); });
+$('#studio-save').addEventListener('click', () => saveStudio(false));
+$('#studio-copy').addEventListener('click', () => saveStudio(true));
+$('#studio-delete').addEventListener('click', async () => {
+  const b = studio.brush;
+  if (!await confirmDelete('Delete brush?', `“${b.name}” will be removed from My brushes.`)) return;
+  customBrushes = customBrushes.filter(x => x.id !== b.id);
+  saveCustomBrushes();
+  pushCustomBrushes([b.id]);
+  for (const k of Object.keys(settings.brushes)) if (settings.brushes[k] === b.id) settings.brushes[k] = { brush: 'studio_pen', smudge: 'soft_blend', eraser: 'hard_airbrush' }[k];
+  saveSettings();
+  updateToolUi();
+  closeStudio();
+});
+$('#studio-export').addEventListener('click', () => {
+  const b = { ...studio.brush, name: $('#studio-name').value.trim() || studio.brush.name };
+  const blob = new Blob([JSON.stringify([b], null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = b.name.replace(/[^\w\- ]+/g, '').trim() + '.brush.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+$('#brush-import').addEventListener('click', () => $('#brush-import-file').click());
+$('#brush-import-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    let list = JSON.parse(await file.text());
+    if (!Array.isArray(list)) list = [list];
+    list = list.filter(b => b && typeof b === 'object' && b.name);
+    if (!list.length) throw new Error('no brushes');
+    for (const [i, b] of list.entries()) { b.id = 'mine_' + Date.now().toString(36) + i; b.category = 'MINE'; customBrushes.unshift(b); }
+    saveCustomBrushes();
+    pushCustomBrushes();
+    brushCategory = 'MINE';
+    toast(`Added ${list.length} brush${list.length > 1 ? 'es' : ''} to My brushes`);
+  } catch { toast('That file is not an Artist Haven brush'); }
+});
 
 // Colour panel
 const wheel = $('#color-wheel');
@@ -835,6 +1110,11 @@ function renderLayers() {
     row.addEventListener('contextmenu', (e) => { e.preventDefault(); layerMenu(l, i, e.clientX, e.clientY); });
     list.append(row);
   }
+  const active = doc.layers.find(l => l.active);
+  if (active && !layerOpacityDragging) {
+    $('#layer-opacity').value = Math.round(active.opacity * 100);
+    $('#layer-opacity-val').textContent = Math.round(active.opacity * 100) + '%';
+  }
   $('#paper-swatch').style.background = hex(doc.paperColor);
   $('#paper-vis').innerHTML = `<svg><use href="#i-${doc.paperVisible ? 'eye' : 'eye-off'}"/></svg>`;
   clearTimeout(layerThumbTimer);
@@ -853,6 +1133,33 @@ function onLayerThumbs(thumbs) {
   }
 }
 $('#layer-add').addEventListener('click', () => call('layer', { op: 'add' }));
+
+// Layer opacity: previewed live while dragging, one undo step when let go.
+let layerOpacityDragging = false;
+function showLayerOpacity(l, v) {
+  l.opacity = v;
+  const idx = doc.layers.indexOf(l);
+  const small = $$('.layer-row')[idx]?.querySelector('small');
+  if (small) {
+    const mode = blendModes.find(m => m.id === l.blendMode)?.name || 'Normal';
+    const flags = [l.alphaLock ? 'alpha lock' : '', l.clipping ? 'clipped' : ''].filter(Boolean).join(', ');
+    small.textContent = `${mode} · ${Math.round(v * 100)}%${flags ? ' · ' + flags : ''}`;
+  }
+}
+$('#layer-opacity').addEventListener('input', (e) => {
+  const l = doc.layers.find(x => x.active);
+  if (!l) return;
+  layerOpacityDragging = true;
+  const v = +e.target.value / 100;
+  $('#layer-opacity-val').textContent = Math.round(v * 100) + '%';
+  showLayerOpacity(l, v);
+  call('layer', { op: 'previewOpacity', args: [l.id, v] });
+});
+$('#layer-opacity').addEventListener('change', () => {
+  const l = doc.layers.find(x => x.active);
+  layerOpacityDragging = false;
+  if (l) call('layer', { op: 'commitOpacity', args: [l.id] });
+});
 $('#paper-vis').addEventListener('click', () => call('paper', { color: doc.paperColor, visible: !doc.paperVisible }));
 $('#paper-swatch').addEventListener('click', () => { togglePanel('p-actions'); });
 
@@ -862,7 +1169,7 @@ function layerMenu(l, index, x, y) {
   const modes = blendModes.map(m => `<option value="${m.id}"${m.id === l.blendMode ? ' selected' : ''}>${m.name}</option>`).join('');
   menu.innerHTML = `
     <button data-op="rename">Rename</button>
-    <label>Opacity <input type="range" min="0" max="1" step="0.01" value="${l.opacity}" data-op="opacity"></label>
+    <label>Opacity <input type="range" min="0" max="1" step="0.01" value="${l.opacity}" data-op="opacity"><output>${Math.round(l.opacity * 100)}%</output></label>
     <label>Blend <select data-op="blend">${modes}</select></label>
     <label>Alpha lock <input type="checkbox" data-op="alphaLock"${l.alphaLock ? ' checked' : ''}></label>
     <label>Clip to layer below <input type="checkbox" data-op="clipping"${l.clipping ? ' checked' : ''}></label>
@@ -891,7 +1198,13 @@ function layerMenu(l, index, x, y) {
     if (op === 'delete') call('layer', { op: 'delete', args: [l.id] });
   };
   const range = menu.querySelector('[data-op=opacity]');
-  range.addEventListener('input', () => call('layer', { op: 'previewOpacity', args: [l.id, parseFloat(range.value)] }));
+  range.addEventListener('input', () => {
+    const v = parseFloat(range.value);
+    // Keep the menu's copy current, or changing the blend mode next would put the old opacity back.
+    showLayerOpacity(l, v);
+    range.nextElementSibling.textContent = Math.round(v * 100) + '%';
+    call('layer', { op: 'previewOpacity', args: [l.id, v] });
+  });
   range.addEventListener('change', () => call('layer', { op: 'commitOpacity', args: [l.id] }));
   menu.querySelector('[data-op=blend]').addEventListener('change', (e) => props({ blendMode: e.target.value }));
   menu.querySelector('[data-op=alphaLock]').addEventListener('change', (e) => props({ alphaLock: e.target.checked }));
@@ -1398,7 +1711,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 (async function start() {
   const ready = waitFor('ready');
-  call('init', { canvas: offscreen }, [offscreen]);
+  call('init', { canvas: offscreen, customBrushes: JSON.stringify(customBrushes) }, [offscreen]);
   await ready;
   if (!brushes.some(b => b.id === settings.brushes.brush)) settings.brushes.brush = 'studio_pen';
   $('#boot').hidden = true;

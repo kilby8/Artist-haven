@@ -63,6 +63,22 @@ data class BrushPreset(
     val lateralJitter: Float = 0f,
     val sizeJitter: Float = 0f,
     val opacityJitter: Float = 0f,
+    /** How far each dab can land from the stroke in any direction, in brush diameters (0..4). */
+    val scatter: Float = 0f,
+    /** Dabs placed at every spacing step (1..16). Use with [scatter] for sprays and stamps. */
+    val count: Int = 1,
+    /** 0..1. Each dab's tip is squashed by a random amount. */
+    val roundnessJitter: Float = 0f,
+    /** 0..1. Each dab may be mirrored, so stamps don't all face the same way. */
+    val flipJitter: Float = 0f,
+
+    // Colour dynamics, all 0..1.
+    /** How far the hue can wander from the chosen colour (1 = anywhere on the wheel). */
+    val hueJitter: Float = 0f,
+    val saturationJitter: Float = 0f,
+    val brightnessJitter: Float = 0f,
+    /** Pick the colour variation once per stroke instead of once per dab. */
+    val colourJitterPerStroke: Boolean = false,
 
     // Stabilisation and taper.
     val streamline: Float = 0.3f,
@@ -75,6 +91,8 @@ data class BrushPreset(
     val grainScale: Float = 1f,
     val grainDepth: Float = 0f,
     val grainMoving: Boolean = false,
+    /** Paints the hollows of the grain or pattern instead of its peaks. */
+    val grainInvert: Boolean = false,
     /**
      * 0..1. How much the grain acts as paper tooth: dry media only catch the peaks of the paper,
      * and pressing harder reaches down into the valleys.
@@ -87,6 +105,11 @@ data class BrushPreset(
     val renderMode: RenderMode = RenderMode.GLAZE,
     val flow: Float = 1f,
     val blendMode: BlendMode = BlendMode.NORMAL,
+    /**
+     * Each dab paints over the ones before it, like stamping or an airbrush held still, instead of
+     * the stroke evening out to one level of opacity (GLAZE mode only).
+     */
+    val buildUp: Boolean = false,
 
     // Wet mix (WET mode only).
     val dilution: Float = 0f,
@@ -183,12 +206,23 @@ enum class BrushCategory(val displayName: String) {
     MINE("My brushes"),
     SKETCHING("Sketching"),
     INKING("Inking"),
+    CALLIGRAPHY("Calligraphy"),
     PAINTING("Painting"),
     BLENDING("Blending"),
     WATERCOLOR("Watercolour"),
     ARTISTIC("Artistic"),
+    CHARCOAL("Charcoal & Pastel"),
     AIRBRUSHING("Airbrushing"),
+    SPRAY("Spray Paint"),
     TEXTURES("Textures"),
+    PATTERNS("Patterns"),
+    STAMPS("Stamps"),
+    NATURE("Nature"),
+    HAIR("Hair & Fur"),
+    ELEMENTS("Elements"),
+    LIGHT("Light & Glow"),
+    RETRO("Retro & Comic"),
+    ABSTRACT("Abstract"),
 }
 
 /** The built-in brush set. Each brush is tuned to look clearly different from the others. */
@@ -198,7 +232,11 @@ object BrushLibrary {
 
     val all: List<BrushPreset> get() = custom + builtIn
 
-    val builtIn: List<BrushPreset> = listOf(
+    val builtIn: List<BrushPreset> get() = builtInList
+
+    private val builtInList: List<BrushPreset> by lazy { (coreBrushes + MoreBrushes.all).sortedBy { it.category.ordinal } }
+
+    private val coreBrushes: List<BrushPreset> = listOf(
         // Sketching
         BrushPreset(
             id = "hb_pencil", name = "HB Pencil", category = BrushCategory.SKETCHING,
@@ -619,8 +657,10 @@ object BrushLibrary {
     val defaultEraser: BrushPreset get() = byId("hard_airbrush")
     val defaultSmudge: BrushPreset get() = byId("soft_blend")
 
+    private val builtInById: Map<String, BrushPreset> by lazy { builtIn.associateBy { it.id } }
+
     fun byId(id: String?): BrushPreset =
-        custom.firstOrNull { it.id == id } ?: builtIn.firstOrNull { it.id == id } ?: builtIn.first { it.id == "studio_pen" }
+        custom.firstOrNull { it.id == id } ?: builtInById[id] ?: builtInById.getValue("studio_pen")
 
     fun isCustom(id: String): Boolean = custom.any { it.id == id }
 
@@ -632,6 +672,11 @@ object BrushCodec {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; prettyPrint = true }
 
     fun encode(brushes: List<BrushPreset>): String = json.encodeToString(brushes)
+
+    private val full = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    /** One brush with every setting written out, for editors that show them all. */
+    fun encodeFull(brush: BrushPreset): String = full.encodeToString(brush)
 
     /** Returns the brushes in [text], or an empty list if it isn't a brush file. */
     fun decode(text: String): List<BrushPreset> =

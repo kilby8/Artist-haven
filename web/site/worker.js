@@ -217,13 +217,29 @@ async function renderPreviews(list, w, h, color, bg) {
 const handlers = {
   init(m) {
     if (m.canvas) canvas = m.canvas;
+    if (m.customBrushes) Editor.setCustomBrushes(m.customBrushes);
     post({
       t: 'ready',
       brushes: JSON.parse(Editor.brushesJson()),
       blendModes: JSON.parse(Editor.blendModesJson()),
+      brushOptions: JSON.parse(Editor.brushOptionsJson()),
     });
   },
   previews(m) { return renderPreviews(m.ids, m.width, m.height, m.color, m.background); },
+
+  // ---- Brush Studio ----
+  setCustomBrushes(m) {
+    Editor.setCustomBrushes(m.json);
+    post({ t: 'brushes', brushes: JSON.parse(Editor.brushesJson()) });
+  },
+  brushJson(m) { post({ t: 'brushJson', id: m.id, json: Editor.brushJson(m.id) }); },
+  previewJson(m) {
+    const p = Editor.brushPreviewJson(m.json, m.width, m.height, m.color | 0, m.background | 0);
+    const c = new OffscreenCanvas(p[0], p[1]);
+    c.getContext('2d').putImageData(rgbaImage(p.subarray(2), p[0], p[1]), 0, 0);
+    const bitmap = c.transferToImageBitmap();
+    post({ t: 'studioPreview', serial: m.serial, bitmap }, [bitmap]);
+  },
   create(m) { return createProject(m); },
   open(m) { return openProject(m.id); },
   async close() { await closeProject(); post({ t: 'closed' }); },

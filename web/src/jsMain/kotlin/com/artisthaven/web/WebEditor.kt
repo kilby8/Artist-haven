@@ -4,7 +4,12 @@ package com.artisthaven.web
 
 import com.artisthaven.engine.Editor
 import com.artisthaven.engine.brush.BrushLibrary
+import com.artisthaven.engine.brush.BrushCategory
+import com.artisthaven.engine.brush.BrushCodec
 import com.artisthaven.engine.brush.BrushPreset
+import com.artisthaven.engine.brush.GrainTexture
+import com.artisthaven.engine.brush.TipAngle
+import com.artisthaven.engine.brush.TipShape
 import com.artisthaven.engine.brush.RenderMode
 import com.artisthaven.engine.document.BlendMode
 import com.artisthaven.engine.document.Change
@@ -358,8 +363,51 @@ class WebEditor private constructor(private val doc: Document) {
                 put("maxSize", b.maxSize)
                 put("defaultOpacity", b.defaultOpacity)
                 if (b.usesPaintLoad) put("paintLoad", b.defaultPaintLoad)
+                if (BrushLibrary.isCustom(b.id)) put("custom", true)
             })
         }.toString()
+
+        /** Every setting of one brush, for the Brush Studio. */
+        fun brushJson(id: String): String = BrushCodec.encodeFull(BrushLibrary.byId(id))
+
+        /** Replaces the user's own brushes (a JSON array of brushes); returns how many loaded. */
+        fun setCustomBrushes(json: String): Int {
+            val list = BrushCodec.decode(json)
+            BrushLibrary.custom = list
+            return list.size
+        }
+
+        /** The choices the Brush Studio offers, with display names. */
+        fun brushOptionsJson(): String = buildJsonObject {
+            fun <E : Enum<E>> list(key: String, items: List<E>, name: (E) -> String) = put(key, buildJsonArray {
+                for (e in items) add(buildJsonObject { put("id", e.name); put("name", name(e)) })
+            })
+            list("tip", TipShape.entries) { it.displayName }
+            list("grain", GrainTexture.entries) { it.displayName }
+            list("renderMode", RenderMode.entries) {
+                when (it) {
+                    RenderMode.GLAZE -> "Glaze (even, clean)"
+                    RenderMode.WET -> "Wet paint (mixes)"
+                    RenderMode.WASH -> "Watercolour wash"
+                    RenderMode.MIXER -> "Mixer brush"
+                }
+            }
+            list("tipAngle", TipAngle.entries) {
+                when (it) {
+                    TipAngle.FIXED -> "Fixed"
+                    TipAngle.FOLLOW_STROKE -> "Follow stroke"
+                    TipAngle.STYLUS -> "Pen direction"
+                }
+            }
+            list("blendMode", BlendMode.entries) { it.displayName }
+            list("category", BrushCategory.entries) { it.displayName }
+        }.toString()
+
+        /** Like [brushPreview], for a brush given as JSON (one being edited). */
+        fun brushPreviewJson(json: String, width: Int, height: Int, color: Int, background: Int): IntArray {
+            val brush = BrushCodec.decode(json).firstOrNull() ?: BrushLibrary.default
+            return preview(brush, width, height, color, background)
+        }
 
         fun blendModesJson(): String = buildJsonArray {
             for (m in BlendMode.entries) add(buildJsonObject {
@@ -369,8 +417,10 @@ class WebEditor private constructor(private val doc: Document) {
         }.toString()
 
         /** A stroke painted by the real engine, for the brush library. [width, height, pixels...]. */
-        fun brushPreview(brushId: String, width: Int, height: Int, color: Int, background: Int): IntArray {
-            val brush = BrushLibrary.byId(brushId)
+        fun brushPreview(brushId: String, width: Int, height: Int, color: Int, background: Int): IntArray =
+            preview(BrushLibrary.byId(brushId), width, height, color, background)
+
+        private fun preview(brush: BrushPreset, width: Int, height: Int, color: Int, background: Int): IntArray {
             val doc = Document.blank(width, height, paperColor = background)
             val editor = Editor(doc)
             if (brush.blendOnly) {

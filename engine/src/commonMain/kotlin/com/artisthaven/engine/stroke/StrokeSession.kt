@@ -68,7 +68,7 @@ class StrokeSession(
     private val mixerStart: MixerState
     private val bristly: Boolean = brush.tip == TipShape.BRISTLE && brush.tipImage == null
     /** Picture tips are square, so their corners reach past the radius when rotated. */
-    private val pictureTip: Boolean = brush.tipImage != null
+    private val pictureTip: Boolean = brush.tipImage != null || (brush.tip.stamp && !bristly)
     private val reachScale: Float = if (pictureTip) 1.415f else 1f
 
     /** How far into the paper tooth the current dab reaches (pressure and tilt). */
@@ -94,12 +94,23 @@ class StrokeSession(
     private var totalDirty: IRect? = null
     private var finished = false
 
-    // Straight brush colour, 0..1.
-    private val cr = Pixels.red(params.color) / 255f
-    private val cg = Pixels.green(params.color) / 255f
-    private val cb = Pixels.blue(params.color) / 255f
+    // Straight brush colour, 0..1. Colour jitter changes it from dab to dab (or per stroke).
+    private var cr = Pixels.red(params.color) / 255f
+    private var cg = Pixels.green(params.color) / 255f
+    private var cb = Pixels.blue(params.color) / 255f
+    private val baseHsv: FloatArray = ColourJitter.toHsv(cr, cg, cb)
+    private val colourJitter: Boolean =
+        tool == Tool.BRUSH && (brush.hueJitter > 0f || brush.saturationJitter > 0f || brush.brightnessJitter > 0f)
+
+    /** The tip's roundness for the dab being painted (roundness jitter changes it per dab). */
+    private var dabRoundness = brush.roundness
+    /** -1 when the dab being painted is mirrored (flip jitter). */
+    private var flipSign = 1f
+    private val flipAcross: Boolean = brush.tipAngle != TipAngle.FIXED
+    private val buildUp: Boolean = brush.buildUp && tool != Tool.SMUDGE
 
     init {
+        if (colourJitter && brush.colourJitterPerStroke) jitterColour(Random(params.seed * 7 + 11))
         if (mixer) this.mixerState.beginStroke(params.color)
         mixerStart = this.mixerState.copy()
         resetPaths()
@@ -439,6 +450,44 @@ class StrokeSession(
             if (s === paths.first()) heldFirstDab = s to p
             return null
         }
+        val n = brush.count.coerceIn(1, 16)
+        if (n == 1 && brush.scatter <= 0f) return dabOnce(s, p, prev, distance, endLength, first, 0f, 0f)
+        var dirty: IRect? = null
+        repeat(n) {
+            // A uniformly random point in a disc, in brush diameters.
+            var ox = 0f
+            var oy = 0f
+            if (brush.scatter > 0f) {
+                val a = s.rnd.nextFloat() * 2f * PI.toFloat()
+                val r = sqrt(s.rnd.nextFloat()) * brush.scatter.coerceIn(0f, 4f)
+                ox = cos(a) * r
+                oy = sin(a) * r
+            }
+            dirty = IRect.unionOf(dirty, dabOnce(s, p, prev, distance, endLength, first, ox, oy))
+        }
+        return dirty
+    }
+
+    private fun jitterColour(rnd: Random) {
+        val c = ColourJitter.jitter(baseHsv, brush.hueJitter, brush.saturationJitter, brush.brightnessJitter, rnd)
+        cr = c[0]; cg = c[1]; cb = c[2]
+    }
+
+    private fun dabOnce(
+        s: PathState,
+        p: InputPoint,
+        prev: InputPoint,
+        distance: Float,
+        endLength: Float?,
+        first: Boolean,
+        scatterX: Float,
+        scatterY: Float,
+    ): IRect? {
+        if (colourJitter && !brush.colourJitterPerStroke) jitterColour(s.rnd)
+        dabRoundness = if (brush.roundnessJitter > 0f) {
+            (brush.roundness * (1f - brush.roundnessJitter * s.rnd.nextFloat())).coerceAtLeast(0.05f)
+        } else brush.roundness
+        flipSign = if (brush.flipJitter > 0f && s.rnd.nextFloat() < brush.flipJitter * 0.5f) -1f else 1f
         val dt = max(1L, p.time - prev.time).toFloat()
         val speed = if (first) 0f else (hypot(p.x - prev.x, p.y - prev.y) / dt / 3f).coerceIn(0f, 1f)
         val pr = pressureCurve(p.pressure)
@@ -462,8 +511,8 @@ class StrokeSession(
             radius = 0.7f
         }
 
-        var cx = p.x
-        var cy = p.y
+        var cx = p.x + scatterX * diameter
+        var cy = p.y + scatterY * diameter
         if (brush.lateralJitter > 0f) {
             val off = (s.rnd.nextFloat() * 2f - 1f) * brush.lateralJitter * diameter * 2f
             cx += -sin(s.directionAngle) * off
@@ -483,7 +532,9 @@ class StrokeSession(
 
         val alpha = (opacity * areaScale).coerceIn(0f, 1f)
         val dabFlow = (flow * areaScale).coerceIn(0f, 1f)
-        val grainDepth = (brush.grainDepth * (1.2f - 0.35f * pr)).coerceIn(0f, 1f)
+        // Patterns stay crisp whatever the pressure; paper grain fills in as you press harder.
+        val grainDepth = if (brush.grain.pattern) brush.grainDepth.coerceIn(0f, 1f)
+        else (brush.grainDepth * (1.2f - 0.35f * pr)).coerceIn(0f, 1f)
         s.lastDabX = cx
         s.lastDabY = cy
         s.bristles?.prepare(distance, params.size)
@@ -538,8 +589,9 @@ class StrokeSession(
     ): Float {
         val dx = px - cx
         val dy = py - cy
-        val u = (dx * cosA + dy * sinA) / radius
-        val v = (-dx * sinA + dy * cosA) / radius * invRound
+        // Flip jitter mirrors a fixed stamp left to right, and a stroke-following tip across the stroke.
+        val u = (dx * cosA + dy * sinA) / radius * (if (flipAcross) 1f else flipSign)
+        val v = (-dx * sinA + dy * cosA) / radius * invRound * (if (flipAcross) flipSign else 1f)
         val b = s.bristles
         var m: Float
         if (b != null && !roundDab) {
@@ -562,7 +614,7 @@ class StrokeSession(
                 g.sampleWrapped(dx / scale + s.grainOffsetX, dy / scale + s.grainOffsetY)
             } else {
                 g.sampleWrapped(px / scale, py / scale)
-            }
+            }.let { if (brush.grainInvert) 1f - it else it }
             if (brush.tooth > 0f) {
                 // Dry media sit on the peaks of the paper: paint lands where the tip reaches
                 // deeper than the hollow at this spot.
@@ -630,7 +682,7 @@ class StrokeSession(
         roundDab = round
         val cosA = cos(angle)
         val sinA = sin(angle)
-        val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
+        val invRound = 1f / dabRoundness.coerceIn(0.05f, 1f)
         val strokeOpacity = params.opacity.coerceIn(0f, 1f)
         val erase = tool == Tool.ERASER
         val alphaLock = layer.alphaLock && !erase && !onMask
@@ -651,12 +703,21 @@ class StrokeSession(
                     val m = maskAt(s, x + 0.5f, y + 0.5f, cx, cy, radius, cosA, sinA, invRound, grainDepth)
                     if (m <= 0f) continue
                     val i = row or (x and TiledSurface.MASK)
-                    val c0 = cov[i]
-                    if (c0 >= target) continue
-                    val c1 = c0 + (target - c0) * min(1f, m * flow)
-                    cov[i] = c1
-                    val o = orig?.get(i) ?: 0
-                    val a = c1 * strokeOpacity
+                    val o: Int
+                    val a: Float
+                    if (buildUp) {
+                        // Paint over whatever is there now, earlier dabs of this stroke included.
+                        o = dest?.get(i) ?: 0
+                        a = target * min(1f, m * flow) * strokeOpacity
+                        if (a <= 0.002f) continue
+                    } else {
+                        val c0 = cov[i]
+                        if (c0 >= target) continue
+                        val c1 = c0 + (target - c0) * min(1f, m * flow)
+                        cov[i] = c1
+                        o = orig?.get(i) ?: 0
+                        a = c1 * strokeOpacity
+                    }
                     var out = when {
                         erase -> Pixels.scale(o, 1f - a)
                         alphaLock -> lockedPaint(o, a)
@@ -708,7 +769,7 @@ class StrokeSession(
         if (rect.isEmpty) return null
         val cosA = cos(angle)
         val sinA = sin(angle)
-        val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
+        val invRound = 1f / dabRoundness.coerceIn(0.05f, 1f)
         val smudge = tool == Tool.SMUDGE
 
         // Average the paint under the dab (on a coarse grid; it only needs to be roughly right).
@@ -1128,7 +1189,7 @@ class StrokeSession(
         if (rect.isEmpty) return null
         val cosA = cos(angle)
         val sinA = sin(angle)
-        val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
+        val invRound = 1f / dabRoundness.coerceIn(0.05f, 1f)
         val m = mixerState
         val wet = brush.mixerWet.coerceIn(0f, 1f)
         val mix = brush.mixerMix.coerceIn(0f, 1f)
@@ -1340,7 +1401,7 @@ class StrokeSession(
         val pig = pigment * (0.55f + 0.45f * load) * (1f + landing) * fade
         val wet = brush.pigmentFlow.coerceIn(0f, 1f)
         val level = 0.2f + 0.6f * wet * (0.5f + 0.5f * load) + flow * 0.15f
-        sim.dab(cx, cy, max(radius, 1.5f), angle, brush.roundness, tip, level, pig, absR, absG, absB)
+        sim.dab(cx, cy, max(radius, 1.5f), angle, dabRoundness, tip, level, pig, absR, absG, absB)
         return null
     }
 
@@ -1379,7 +1440,7 @@ class StrokeSession(
 
         val cosA = cos(angle)
         val sinA = sin(angle)
-        val invRound = 1f / brush.roundness.coerceIn(0.05f, 1f)
+        val invRound = 1f / dabRoundness.coerceIn(0.05f, 1f)
         val shift = TiledSurface.SHIFT
         val outer2 = reachOut * reachOut
         for (index in surface.tilesIn(rect)) {
