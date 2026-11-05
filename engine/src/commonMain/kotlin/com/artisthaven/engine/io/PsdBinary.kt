@@ -38,10 +38,10 @@ class BinaryReader(val bytes: ByteArray, start: Int = 0, end: Int = bytes.size) 
         return v.toInt()
     }
     fun i64(): Long = (i32().toLong() shl 32) or (i32().toLong() and 0xFFFFFFFFL)
-    fun f64(): Double = java.lang.Double.longBitsToDouble(i64())
+    fun f64(): Double = Double.fromBits(i64())
     fun take(n: Int): ByteArray { need(n); val out = bytes.copyOfRange(pos, pos + n); pos += n; return out }
     fun skip(n: Int) { need(n); pos += n }
-    fun ascii(n: Int): String = String(take(n), Charsets.ISO_8859_1)
+    fun ascii(n: Int): String { val b = take(n); return CharArray(n) { (b[it].toInt() and 0xFF).toChar() }.concatToString() }
     /** A sub-reader over the next [n] bytes; this reader moves past them. */
     fun sub(n: Int): BinaryReader { need(n); val r = BinaryReader(bytes, pos, pos + n); pos += n; return r }
 
@@ -50,7 +50,7 @@ class BinaryReader(val bytes: ByteArray, start: Int = 0, end: Int = bytes.size) 
         val n = i32()
         if (n < 0 || n.toLong() * 2 > left) throw FormatException("bad text length $n")
         val chars = CharArray(n) { u16().toChar() }
-        return String(chars).trimEnd('\u0000')
+        return chars.concatToString().trimEnd('\u0000')
     }
 }
 
@@ -76,7 +76,7 @@ object PackBits {
             when {
                 n >= 0 -> {
                     val len = minOf(n + 1, width - x, r.left)
-                    System.arraycopy(r.bytes, r.pos, out, offset + x, len)
+                    r.bytes.copyInto(out, offset + x, r.pos, r.pos + len)
                     r.pos += minOf(n + 1, r.left)
                     x += len
                 }
@@ -84,7 +84,7 @@ object PackBits {
                     if (r.left == 0) return
                     val v = r.u8().toByte()
                     val len = minOf(1 - n, width - x)
-                    java.util.Arrays.fill(out, offset + x, offset + x + len, v)
+                    out.fill(v, offset + x, offset + x + len)
                     x += len
                 }
             }
@@ -195,4 +195,29 @@ class Descriptor(val classId: String, val items: List<Pair<String, Any?>>) {
             }
         }
     }
+}
+
+/** Inflates zlib data from [bytes] into each of [outs] in turn (ZIP-compressed PSD channels). */
+internal expect fun inflateInto(bytes: ByteArray, offset: Int, length: Int, outs: List<ByteArray>)
+
+/** A growable big-endian byte buffer, for writing Adobe formats on every platform. */
+class ByteSink(initial: Int = 1024) {
+    private var buf = ByteArray(maxOf(16, initial))
+    var size: Int = 0
+        private set
+
+    private fun ensure(n: Int) {
+        if (size + n <= buf.size) return
+        var cap = buf.size * 2
+        while (cap < size + n) cap *= 2
+        buf = buf.copyOf(cap)
+    }
+
+    fun byte(v: Int) { ensure(1); buf[size++] = v.toByte() }
+    fun short(v: Int) { ensure(2); buf[size++] = (v shr 8).toByte(); buf[size++] = v.toByte() }
+    fun int(v: Int) { ensure(4); buf[size++] = (v shr 24).toByte(); buf[size++] = (v shr 16).toByte(); buf[size++] = (v shr 8).toByte(); buf[size++] = v.toByte() }
+    fun ascii(s: String) { ensure(s.length); for (c in s) buf[size++] = c.code.toByte() }
+    fun bytes(b: ByteArray, from: Int = 0, to: Int = b.size) { ensure(to - from); b.copyInto(buf, size, from, to); size += to - from }
+    fun zeros(n: Int) { ensure(n); size += n }
+    fun toByteArray(): ByteArray = buf.copyOf(size)
 }

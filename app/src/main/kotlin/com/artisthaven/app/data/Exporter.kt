@@ -29,7 +29,7 @@ object Exporter {
     /** Encodes the document; call on the engine thread because it reads the document. */
     fun encode(doc: Document, format: ExportFormat, out: OutputStream) {
         when (format) {
-            ExportFormat.PSD -> PsdWriter.write(doc, out)
+            ExportFormat.PSD -> out.write(PsdWriter.encode(doc))
             else -> {
                 val px = Compositor.flatten(doc, withPaper = format != ExportFormat.PNG_TRANSPARENT)
                 val bmp = Bitmap.createBitmap(px, doc.width, doc.height, Bitmap.Config.ARGB_8888)

@@ -31,6 +31,12 @@ import com.artisthaven.engine.tools.QuickShape
 import com.artisthaven.engine.tools.Affine
 import com.artisthaven.engine.tools.Resample
 import com.artisthaven.engine.tools.TransformSession
+import com.artisthaven.engine.tools.AdjustSession
+import com.artisthaven.engine.tools.Adjustment
+import com.artisthaven.engine.tools.LiquifyMode
+import com.artisthaven.engine.tools.LiquifySession
+import com.artisthaven.engine.document.GroupProps
+import com.artisthaven.engine.document.GroupsCommand
 import com.artisthaven.engine.raster.IRect
 import kotlin.math.min
 
@@ -189,7 +195,7 @@ class Editor(val doc: Document, val history: History = History()) {
     /** Starts a stroke on the active layer. Returns false if the layer can't be painted. */
     fun beginStroke(params: StrokeParams, first: InputPoint): Change {
         cancelStroke()
-        if (transform != null) return Change.NONE
+        if (transform != null || adjust != null) return Change.NONE
         val layer = doc.activeLayer ?: return Change.NONE
         if (!layer.visible) return Change.NONE
         val flowing = params.tool == Tool.BRUSH && params.brush.renderMode == RenderMode.WASH &&
@@ -326,6 +332,8 @@ class Editor(val doc: Document, val history: History = History()) {
         // Keep undo in order: what the water did so far comes before this edit.
         closeWaterStep()
         if (transform != null) settled = settled.merge(commitTransform())
+        if (adjust != null) settled = settled.merge(commitAdjust())
+        if (liquify != null) settled = settled.merge(endLiquify())
     }
 
     /** Edits that change pixels (fill, clear, merge, transform...) dry the water first. */
@@ -477,6 +485,72 @@ class Editor(val doc: Document, val history: History = History()) {
         return changed(Change(dirty, true))
     }
 
+    // ---- Adjustments ----------------------------------------------------------------------------
+
+    private var adjust: AdjustSession? = null
+
+    val isAdjusting: Boolean get() = adjust != null
+
+    /**
+     * Starts adjusting the active layer (or its mask, or the selected part). Returns false if
+     * there is nothing to adjust. Call [previewAdjust] as sliders move, then [commitAdjust] or
+     * [cancelAdjust].
+     */
+    fun beginAdjust(kind: Adjustment): Boolean {
+        cancelStroke()
+        settlePixels()
+        val layer = doc.activeLayer ?: return false
+        val s = AdjustSession(layer, kind, doc.selection, doc.paintsMask(layer))
+        if (s.isEmpty) return false
+        adjust = s
+        return true
+    }
+
+    fun previewAdjust(a: Float, b: Float, c: Float): Change {
+        val s = adjust ?: return Change.NONE
+        return Change(s.render(a, b, c), false)
+    }
+
+    fun commitAdjust(): Change {
+        val s = adjust ?: return Change.NONE
+        adjust = null
+        val cmd = s.finish(s.kind.displayName) ?: return Change.NONE
+        history.push(cmd)
+        return changed(Change(null, true))
+    }
+
+    fun cancelAdjust(): Change {
+        val s = adjust ?: return Change.NONE
+        adjust = null
+        return Change(s.cancel(), false)
+    }
+
+    // ---- Liquify --------------------------------------------------------------------------------
+
+    private var liquify: LiquifySession? = null
+
+    fun beginLiquify(mode: LiquifyMode, size: Float, strength: Float, x: Float, y: Float, pressure: Float): Change {
+        cancelStroke()
+        settlePixels()
+        val layer = doc.activeLayer ?: return Change.NONE
+        if (!layer.visible) return Change.NONE
+        val s = LiquifySession(layer, mode, size, strength, doc.selection, doc.paintsMask(layer))
+        liquify = s
+        return Change(s.add(x, y, pressure), false)
+    }
+
+    fun liquifyTo(x: Float, y: Float, pressure: Float): Change = Change(liquify?.add(x, y, pressure), false)
+
+    fun endLiquify(): Change {
+        val s = liquify ?: return Change.NONE
+        liquify = null
+        val cmd = s.finish() ?: return Change.NONE
+        history.push(cmd)
+        return changed(Change(null, true))
+    }
+
+    val isLiquifying: Boolean get() = liquify != null
+
     // ---- Layer masks ----------------------------------------------------------------------------
 
     /** Gives the active layer an empty mask (everything shows) and starts editing it. */
@@ -551,11 +625,13 @@ class Editor(val doc: Document, val history: History = History()) {
      * Adds a picture as a new layer above the active one, centred on the canvas. [pixels] are
      * straight ARGB, [width] x [height]; anything past the canvas edge is cropped.
      */
-    fun addImageLayer(name: String, pixels: IntArray, width: Int, height: Int): Change {
+    fun addImageLayer(name: String, pixels: IntArray, width: Int, height: Int): Change =
+        addImageLayerAt(name, pixels, width, height, (doc.width - width) / 2, (doc.height - height) / 2)
+
+    /** Like [addImageLayer], with the picture's top-left corner at ([ox], [oy]). */
+    fun addImageLayerAt(name: String, pixels: IntArray, width: Int, height: Int, ox: Int, oy: Int): Change {
         settle()
         val layer = doc.createLayer(name)
-        val ox = (doc.width - width) / 2
-        val oy = (doc.height - height) / 2
         for (y in 0 until height) {
             val dy = y + oy
             if (dy < 0 || dy >= doc.height) continue
@@ -598,7 +674,191 @@ class Editor(val doc: Document, val history: History = History()) {
     fun moveLayer(from: Int, to: Int): Change {
         settle()
         if (from !in doc.layers.indices || to !in doc.layers.indices || from == to) return Change.NONE
-        return changed(history.execute(doc, MoveLayerCommand(from, to)))
+        val groupsBefore = LinkedHashMap(doc.groups)
+        val propsBefore = doc.layers.associate { it.id to it.props }
+        val move = MoveLayerCommand(from, to)
+        var c = move.apply(doc)
+        // A layer moved between two layers of a group joins it; one moved away from its group leaves.
+        val moved = doc.layers[to]
+        val below = doc.layers.getOrNull(to - 1)?.group ?: ""
+        val above = doc.layers.getOrNull(to + 1)?.group ?: ""
+        val group = when {
+            below.isNotEmpty() && below == above -> below
+            moved.group.isNotEmpty() && (below == moved.group || above == moved.group) -> moved.group
+            else -> ""
+        }
+        if (group != moved.group) moved.props = moved.props.copy(group = group)
+        pruneGroups()
+        val propsAfter = doc.layers.associate { it.id to it.props }
+        if (propsAfter == propsBefore && groupsBefore == doc.groups) {
+            history.push(move)
+            return changed(c)
+        }
+        val regroup = GroupsCommand("Move layer", groupsBefore, LinkedHashMap(doc.groups), propsBefore, propsAfter)
+        c = c.merge(Change(doc.bounds, true))
+        history.push(CompoundCommand("Move layer", listOf(move, regroup)))
+        return changed(c)
+    }
+
+    // ---- Layer groups ---------------------------------------------------------------------------
+
+    /** Drops groups that no layer is in any more. */
+    private fun pruneGroups() {
+        val used = doc.layers.mapTo(HashSet()) { it.group }
+        doc.groups.keys.retainAll(used)
+    }
+
+    private fun regroup(label: String, edit: () -> Unit): Change {
+        settle()
+        val groupsBefore = LinkedHashMap(doc.groups)
+        val propsBefore = doc.layers.associate { it.id to it.props }
+        edit()
+        pruneGroups()
+        val propsAfter = doc.layers.associate { it.id to it.props }
+        if (propsAfter == propsBefore && groupsBefore == doc.groups) return Change.NONE
+        return changed(history.execute(doc, GroupsCommand(label, groupsBefore, LinkedHashMap(doc.groups), propsBefore, propsAfter)))
+    }
+
+    /**
+     * Puts layer [id] in a new group, with the layer below it too when [withBelow]. A layer that
+     * is already in a group, joined by the one below, takes that layer into its group instead.
+     */
+    fun groupLayer(id: String, withBelow: Boolean): Change = regroup("Group layers") {
+        val index = doc.indexOf(id)
+        if (index < 0) return@regroup
+        val layer = doc.layers[index]
+        val below = if (withBelow) doc.layers.getOrNull(index - 1) else null
+        if (below != null && layer.group.isNotEmpty() && below.group.isEmpty()) {
+            below.props = below.props.copy(group = layer.group)
+            return@regroup
+        }
+        if (below != null && below.group.isNotEmpty() && layer.group.isEmpty()) {
+            layer.props = layer.props.copy(group = below.group)
+            return@regroup
+        }
+        val gid = doc.newGroupId()
+        doc.groups[gid] = GroupProps(doc.nextGroupName())
+        // Only the layers being grouped leave their old group, so groups never interleave.
+        val members = listOfNotNull(below, layer)
+        val oldGroup = layer.group
+        if (oldGroup.isNotEmpty()) {
+            // Splitting inside a group would leave it in two pieces: take the whole run instead.
+            for (l in doc.layers) if (l.group == oldGroup) l.props = l.props.copy(group = gid)
+            doc.groups[gid] = GroupProps(doc.groups[oldGroup]?.name?.let { "$it group" } ?: doc.nextGroupName())
+        } else {
+            for (l in members) l.props = l.props.copy(group = gid)
+        }
+    }
+
+    /** Takes every layer out of group [groupId] and removes it. */
+    fun ungroup(groupId: String): Change = regroup("Ungroup") {
+        for (l in doc.layers) if (l.group == groupId) l.props = l.props.copy(group = "")
+    }
+
+    /** Takes one layer out of its group (it moves just above the group). */
+    fun removeFromGroup(id: String): Change {
+        val layer = doc.layer(id) ?: return Change.NONE
+        val g = layer.group
+        if (g.isEmpty()) return Change.NONE
+        val top = doc.layers.indexOfLast { it.group == g }
+        val from = doc.indexOf(id)
+        settle()
+        val groupsBefore = LinkedHashMap(doc.groups)
+        val propsBefore = doc.layers.associate { it.id to it.props }
+        val parts = ArrayList<Command>()
+        var c = Change.NONE
+        if (top != from) {
+            val move = MoveLayerCommand(from, top)
+            c = c.merge(move.apply(doc))
+            parts += move
+        }
+        layer.props = layer.props.copy(group = "")
+        pruneGroups()
+        parts += GroupsCommand("Remove from group", groupsBefore, LinkedHashMap(doc.groups), propsBefore, doc.layers.associate { it.id to it.props })
+        history.push(CompoundCommand("Remove from group", parts))
+        return changed(c.merge(Change(doc.bounds, true)))
+    }
+
+    fun setGroupProps(groupId: String, update: (GroupProps) -> GroupProps): Change {
+        val g = doc.groups[groupId] ?: return Change.NONE
+        val next = update(g)
+        if (next == g) return Change.NONE
+        return regroup("Group") { doc.groups[groupId] = next }
+    }
+
+    /** Moves a whole group up ([up]) or down past its neighbouring layer or group. */
+    fun moveGroup(groupId: String, up: Boolean): Change {
+        val first = doc.layers.indexOfFirst { it.group == groupId }
+        val last = doc.layers.indexOfLast { it.group == groupId }
+        if (first < 0) return Change.NONE
+        settle()
+        // Step over a whole neighbouring group at once, so groups never interleave.
+        val neighbour = (if (up) doc.layers.getOrNull(last + 1) else doc.layers.getOrNull(first - 1))
+            ?: return Change.NONE
+        val span = if (neighbour.group.isEmpty()) 1 else doc.layers.count { it.group == neighbour.group }
+        val parts = ArrayList<Command>()
+        var c = Change.NONE
+        repeat(span) {
+            if (up) {
+                // The layer just above the group moves to just below it.
+                val f = doc.layers.indexOfFirst { it.group == groupId }
+                val l = doc.layers.indexOfLast { it.group == groupId }
+                val m = MoveLayerCommand(l + 1, f)
+                c = c.merge(m.apply(doc)); parts += m
+            } else {
+                val f = doc.layers.indexOfFirst { it.group == groupId }
+                val l = doc.layers.indexOfLast { it.group == groupId }
+                val m = MoveLayerCommand(f - 1, l)
+                c = c.merge(m.apply(doc)); parts += m
+            }
+        }
+        history.push(CompoundCommand("Move group", parts))
+        return changed(c)
+    }
+
+    /** Deletes every layer in a group (a document always keeps one layer). */
+    fun deleteGroup(groupId: String): Change {
+        settlePixels()
+        val members = doc.layers.filter { it.group == groupId }
+        if (members.isEmpty()) return Change.NONE
+        val parts = ArrayList<Command>()
+        var c = Change.NONE
+        val groupsBefore = LinkedHashMap(doc.groups)
+        val propsBefore = doc.layers.associate { it.id to it.props }
+        for (l in members) {
+            if (doc.layers.size <= 1) {
+                l.props = l.props.copy(group = "")
+                continue
+            }
+            val index = doc.indexOf(l.id)
+            val next = doc.layers.getOrNull(index - 1) ?: doc.layers[index + 1]
+            val del = DeleteLayerCommand(index, l, if (doc.activeLayerId == l.id) next.id else doc.activeLayerId)
+            c = c.merge(del.apply(doc)); parts += del
+        }
+        pruneGroups()
+        parts += GroupsCommand("Delete group", groupsBefore, LinkedHashMap(doc.groups), propsBefore.filterKeys { doc.layer(it) != null },
+            doc.layers.associate { it.id to it.props })
+        history.push(CompoundCommand("Delete group", parts))
+        return changed(c.merge(Change(doc.bounds, true)))
+    }
+
+    /** Merges all of a group's layers into one plain layer, baking in the group's look. */
+    fun flattenGroup(groupId: String): Change {
+        val members = doc.layers.filter { it.group == groupId }
+        if (members.isEmpty()) return Change.NONE
+        settlePixels()
+        var c = Change.NONE
+        // Merge from the top down, then take the result out of the group.
+        while (doc.layers.count { it.group == groupId } > 1) {
+            val top = doc.layers.last { it.group == groupId }
+            c = c.merge(mergeDown(top.id))
+        }
+        val last = doc.layers.first { it.group == groupId }
+        val g = doc.groups[groupId] ?: GroupProps("Group")
+        c = c.merge(regroup("Flatten group") {
+            last.props = last.props.copy(group = "", name = g.name, visible = last.visible && g.visible, opacity = last.opacity * g.opacity)
+        })
+        return changed(c)
     }
 
     fun setLayerProps(id: String, update: (LayerProps) -> LayerProps): Change {
@@ -647,7 +907,11 @@ class Editor(val doc: Document, val history: History = History()) {
         val lower = doc.layers[index - 1]
         val before = HashMap<Int, IntArray?>()
         val indices = upper.surface.nonEmptyTileIndices()
-        if (upper.visible) {
+        // Inside one group the group's own fade still applies after merging, so only the
+        // layer's opacity is baked in; merging out of a group bakes in the group's too.
+        val sameGroup = upper.group == lower.group
+        val mergeOpacity = if (sameGroup) upper.opacity else doc.effectiveOpacity(upper)
+        if (if (sameGroup) upper.visible else doc.effectiveVisible(upper)) {
             for (ti in indices) {
                 before[ti] = lower.surface.copyTile(ti)
                 val raw = upper.surface.tile(ti) ?: continue
@@ -663,7 +927,7 @@ class Editor(val doc: Document, val history: History = History()) {
                         if (ba == 0) continue
                         s = Pixels.scale(s, ba / 255f)
                     }
-                    dst[i] = upper.blendMode.blend(dst[i], s, upper.opacity)
+                    dst[i] = upper.blendMode.blend(dst[i], s, mergeOpacity)
                 }
             }
         }
@@ -686,6 +950,8 @@ class Editor(val doc: Document, val history: History = History()) {
     fun undo(): Change {
         cancelStroke()
         if (transform != null) return cancelTransform()
+        if (adjust != null) return cancelAdjust()
+        if (liquify != null) endLiquify()
         wetCanvases.clear()
         // Undo while paint is still wet takes back that stroke and its water.
         closeWaterStep()
@@ -695,7 +961,8 @@ class Editor(val doc: Document, val history: History = History()) {
 
     fun redo(): Change {
         cancelStroke()
-        if (transform != null) return Change.NONE
+        if (transform != null || adjust != null) return Change.NONE
+        if (liquify != null) endLiquify()
         wetCanvases.clear()
         closeWaterStep()
         waterSims.values.forEach { it.clear() }

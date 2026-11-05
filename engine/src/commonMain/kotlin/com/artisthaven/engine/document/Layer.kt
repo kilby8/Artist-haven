@@ -10,6 +10,15 @@ data class LayerProps(
     val blendMode: BlendMode = BlendMode.NORMAL,
     val alphaLock: Boolean = false,
     val clipping: Boolean = false,
+    /** Id of the group (folder) this layer is in, or empty. Layers of a group sit together. */
+    val group: String = "",
+)
+
+/** A layer group (folder): pass-through, it hides or fades every layer in it at once. */
+data class GroupProps(
+    val name: String,
+    val visible: Boolean = true,
+    val opacity: Float = 1f,
 )
 
 class Layer(
@@ -28,6 +37,7 @@ class Layer(
     val blendMode: BlendMode get() = props.blendMode
     val alphaLock: Boolean get() = props.alphaLock
     val clipping: Boolean get() = props.clipping
+    val group: String get() = props.group
 
     fun duplicate(newId: String, newName: String): Layer =
         Layer(newId, props.copy(name = newName), surface.copy(), mask?.copy())

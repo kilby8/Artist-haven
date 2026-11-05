@@ -30,6 +30,12 @@
     <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 001 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2z"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></symbol>
     <symbol id="i-install" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></symbol>
+    <symbol id="i-wand" viewBox="0 0 24 24"><path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29a.996.996 0 00-1.41 0L1.29 18.96a.996.996 0 000 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05a.996.996 0 000-1.41l-2.33-2.35zm-1.03 5.49l-2.12-2.12 2.44-2.44 2.12 2.12-2.44 2.44z"/></symbol>
+    <symbol id="i-select" viewBox="0 0 24 24"><path d="M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2z"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7S5.5 10 5.5 14.5a6.5 6.5 0 0013 0C18.5 10 12 2.7 12 2.7z"/></symbol>
   </defs>
 </svg>
 
@@ -39,7 +45,7 @@
     <h1>Artist Haven</h1>
     <div class="spacer"></div>
     <button id="install-btn" class="text-btn" hidden><svg><use href="#i-install"/></svg>Install app</button>
-    <button id="import-btn" class="text-btn">Import photo</button>
+    <button id="import-btn" class="text-btn" title="Open a photo or a Photoshop file (.psd)">Import</button>
     <button id="new-btn" class="primary-btn"><svg><use href="#i-plus"/></svg>New canvas</button>
   </header>
   <div id="gallery-grid" class="gallery-grid"></div>
@@ -47,7 +53,7 @@
     <p class="big">Your drawings will appear here.</p>
     <p>Tap <b>New canvas</b> to start. Everything saves automatically on this device.</p>
   </div>
-  <input id="gallery-file" type="file" accept="image/*" hidden>
+  <input id="gallery-file" type="file" accept="image/*,.psd,.psb" hidden>
 </section>
 
 <!-- Canvas -->
@@ -61,6 +67,9 @@
     <div class="group">
       <button class="icon-btn" id="b-gallery" title="Gallery"><svg><use href="#i-gallery"/></svg></button>
       <button class="icon-btn" id="b-actions" title="Actions"><svg><use href="#i-wrench"/></svg></button>
+      <button class="icon-btn" id="b-adjust" title="Adjustments"><svg><use href="#i-wand"/></svg></button>
+      <button class="icon-btn" id="b-select" title="Select (M)"><svg><use href="#i-select"/></svg></button>
+      <button class="icon-btn" id="b-move" title="Move and transform (V or Ctrl+T)"><svg><use href="#i-move"/></svg></button>
     </div>
     <div class="title" id="doc-title"></div>
     <div class="group">
@@ -145,12 +154,16 @@
         <h3>Add</h3>
         <button class="action" data-act="photo">Insert a photo</button>
         <button class="action" data-act="paste">Paste image</button>
+        <button class="action" data-act="text">Add text</button>
+        <button class="action" data-act="reference">Reference picture…</button>
       </div>
       <div class="action-group">
         <h3>Share</h3>
         <button class="action" data-act="png">Export PNG</button>
         <button class="action" data-act="png-clear">Export PNG without paper</button>
         <button class="action" data-act="jpg">Export JPEG</button>
+        <button class="action" data-act="psd">Export PSD (Photoshop, Procreate, Krita)</button>
+        <button class="action" data-act="timelapse">Time-lapse replay</button>
       </div>
       <div class="action-group">
         <h3>Canvas</h3>
@@ -164,6 +177,7 @@
       </div>
       <div class="action-group">
         <h3>Feel</h3>
+        <button class="action" data-act="pressure">Pen pressure curve…</button>
         <label class="row">Extra smoothing <input type="range" id="streamline" min="0" max="1" step="0.05"></label>
         <label class="row">Fill tolerance <input type="range" id="fill-tol" min="0" max="1" step="0.02"></label>
         <label class="row check"><input type="checkbox" id="fill-all"> Fill uses all layers</label>
@@ -174,10 +188,85 @@
         <h3>Gestures</h3>
         <p>Pen: draw. Pen eraser end: erase. Hold the pen still at the end of a line to snap it straight or into a shape.</p>
         <p>Two fingers: move, zoom and turn. Tap with two fingers to undo, three to redo.</p>
-        <p>Keyboard: B paint, S smudge, E erase, I eyedropper, G fill, [ and ] size, Ctrl+Z undo, Ctrl+Y redo, Space and drag to move.</p>
+        <p>Keyboard: B paint, S smudge, E erase, I eyedropper, G fill, M select, V move, [ and ] size, Ctrl+Z undo, Ctrl+Y redo, Space and drag to move.</p>
+        <p>Selections: Ctrl+A all, Ctrl+D deselect, Ctrl+Shift+I invert, Delete erases, Shift adds, Alt takes away. Transform: arrow keys nudge, Enter finishes, Esc cancels.</p>
       </div>
     </div>
   </div>
+
+  <!-- Selection tool bar -->
+  <div class="tool-bar" id="sel-bar" hidden>
+    <div class="seg" id="sel-shapes">
+      <button data-shape="lasso" title="Draw round what you want (freehand)">Lasso</button>
+      <button data-shape="rect" title="Drag a box">Rectangle</button>
+      <button data-shape="ellipse" title="Drag an oval">Ellipse</button>
+      <button data-shape="auto" title="Tap a colour area; drag sideways to change how much it takes">Automatic</button>
+    </div>
+    <div class="seg" id="sel-modes">
+      <button data-mode="0" title="Each new selection replaces the last">New</button>
+      <button data-mode="1" title="Add to the selection (or hold Shift)">Add</button>
+      <button data-mode="2" title="Take away from the selection (or hold Alt)">Subtract</button>
+    </div>
+    <div class="bar-actions">
+      <button data-sel="all">All</button>
+      <button data-sel="invert">Invert</button>
+      <button data-sel="copy" title="Copy the selected part onto a new layer">Copy to layer</button>
+      <button data-sel="cut" title="Move the selected part onto a new layer">Cut to layer</button>
+      <button data-sel="fill" title="Fill with the current colour">Fill</button>
+      <button data-sel="clear" title="Erase the selected part (Delete)">Erase</button>
+      <button data-sel="none" title="Ctrl+D">Deselect</button>
+    </div>
+  </div>
+
+  <!-- Transform bar -->
+  <div class="tool-bar" id="xf-bar" hidden>
+    <div class="seg">
+      <button id="xf-uniform" class="toggle" title="Corners keep the proportions">Keep proportions</button>
+    </div>
+    <div class="bar-actions">
+      <button data-xf="flipH">Flip ↔</button>
+      <button data-xf="flipV">Flip ↕</button>
+      <button data-xf="rot">Rotate 90°</button>
+      <button data-xf="fit" title="Fit to the canvas">Fit</button>
+      <button data-xf="reset">Reset</button>
+      <label>Quality <select id="xf-quality"><option value="0">Smooth</option><option value="1">Sharp</option><option value="2">Pixel</option></select></label>
+    </div>
+    <div class="bar-end">
+      <button class="text-btn" data-xf="cancel">Cancel</button>
+      <button class="primary-btn" data-xf="done">Done</button>
+    </div>
+  </div>
+
+  <!-- Liquify bar -->
+  <div class="tool-bar" id="lq-bar" hidden>
+    <div class="seg" id="lq-modes"></div>
+    <label class="bar-slider">Size <input type="range" id="lq-size" min="10" max="600" step="1"><output></output></label>
+    <label class="bar-slider">Strength <input type="range" id="lq-strength" min="0.05" max="1" step="0.01"><output></output></label>
+    <div class="bar-end"><button class="primary-btn" data-lq="done">Done</button></div>
+  </div>
+
+  <!-- Adjustment sliders -->
+  <div class="adjust-panel" id="p-adjust" hidden>
+    <div class="panel-head"><h2 id="adjust-title"></h2><span class="hint" id="adjust-hint"></span></div>
+    <div class="adjust-body" id="adjust-body"></div>
+    <div class="dialog-actions">
+      <button class="text-btn" id="adjust-reset">Reset</button>
+      <span class="spacer"></span>
+      <button class="text-btn" id="adjust-cancel">Cancel</button>
+      <button class="primary-btn" id="adjust-apply">Apply</button>
+    </div>
+  </div>
+
+  <div class="mask-banner" id="mask-banner" hidden>Painting on the mask: black hides, white shows. <button class="link-btn" id="mask-done">Back to the layer</button></div>
+  <button class="dry-btn" id="dry-btn" hidden title="Dry all wet watercolour now"><svg><use href="#i-drop"/></svg>Dry</button>
+
+  <!-- Reference picture -->
+  <div class="ref-win" id="ref-win" hidden>
+    <div class="ref-head" id="ref-head"><span>Reference</span><button class="icon-btn small" id="ref-close" title="Close"><svg><use href="#i-close"/></svg></button></div>
+    <canvas id="ref-canvas"></canvas>
+    <div class="ref-grip" id="ref-grip"></div>
+  </div>
+  <input id="ref-file" type="file" accept="image/*" hidden>
 
   <div class="loupe" id="loupe" hidden></div>
   <input id="canvas-file" type="file" accept="image/*" hidden>
@@ -223,6 +312,65 @@
   <button data-menu="delete" class="danger">Delete</button>
 </div>
 <div class="menu" id="layer-menu" hidden></div>
+<div class="menu" id="adjust-menu" hidden></div>
+
+<div class="dialog" id="d-pressure" hidden>
+  <h2>Pen pressure</h2>
+  <p>Drag the dot to change how hard you need to press. Up makes light touches darker; down saves full strength for firm presses.</p>
+  <div class="pressure-body">
+    <canvas id="pressure-curve" width="480" height="480"></canvas>
+    <div class="pressure-side">
+      <div class="seg vertical" id="pressure-presets">
+        <button data-p="soft">Soft (light hand)</button>
+        <button data-p="normal">Even</button>
+        <button data-p="firm">Firm (heavy hand)</button>
+      </div>
+      <p class="hint">Try it here with the pen:</p>
+      <canvas id="pressure-pad" width="480" height="200"></canvas>
+    </div>
+  </div>
+  <div class="dialog-actions"><button class="primary-btn" data-close>Done</button></div>
+</div>
+
+<div class="dialog" id="d-text" hidden>
+  <h2>Add text</h2>
+  <textarea id="text-input" rows="3" placeholder="Type here"></textarea>
+  <div class="text-opts">
+    <label>Font <select id="text-font">
+      <option value="'Segoe UI', system-ui, sans-serif">Segoe UI</option>
+      <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+      <option value="'Segoe Script', 'Brush Script MT', cursive">Script</option>
+      <option value="'Segoe Print', 'Comic Sans MS', cursive">Handwriting</option>
+      <option value="Impact, 'Arial Black', sans-serif">Impact</option>
+      <option value="Consolas, 'Courier New', monospace">Typewriter</option>
+      <option value="'Palatino Linotype', Palatino, serif">Palatino</option>
+    </select></label>
+    <label>Size <input type="number" id="text-size" min="6" max="1000" value="120"></label>
+    <label class="check"><input type="checkbox" id="text-bold"> Bold</label>
+    <label class="check"><input type="checkbox" id="text-italic"> Italic</label>
+    <label>Align <select id="text-align"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></label>
+  </div>
+  <p class="hint">The text goes on its own layer in the current colour; move and size it afterwards.</p>
+  <div class="dialog-actions">
+    <button class="text-btn" data-close>Cancel</button>
+    <button class="primary-btn" id="text-ok">Add</button>
+  </div>
+</div>
+
+<div class="dialog wide-dialog" id="d-timelapse" hidden>
+  <h2>Time-lapse</h2>
+  <canvas id="tl-canvas"></canvas>
+  <div class="tl-controls">
+    <button class="text-btn" id="tl-play">Play</button>
+    <input type="range" id="tl-pos" min="0" max="0" value="0">
+    <span class="hint" id="tl-info"></span>
+  </div>
+  <p class="hint">A frame is kept each time the drawing pauses for a moment, from now on.</p>
+  <div class="dialog-actions">
+    <button class="text-btn" id="tl-export">Save as video</button>
+    <button class="primary-btn" data-close>Close</button>
+  </div>
+</div>
 
 <div class="toast" id="toast" hidden></div>
 <div class="boot" id="boot"><div class="spinner"></div></div>
