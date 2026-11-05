@@ -345,6 +345,7 @@ const handlers = {
   cancel() { if (ed && ed.isStroking) { ed.cancelStroke(); queueFrame(); } },
   quickShape() { if (ed && ed.isStroking && ed.quickShape()) { post({ t: 'snapped' }); queueFrame(); } },
 
+  fillShape(m) { if (ed) { ed.fillPolygon(new Float32Array(m.points), m.color | 0); sendState(); changed(); } },
   fill(m) { ed.fill(m.x, m.y, m.color | 0, m.tolerance, m.allLayers); sendState(); changed(); },
   sample(m) { post({ t: 'sampled', color: ed.sampleColor(m.x, m.y), final: m.final, id: m.id }); },
   undo() { ed.undo(); sendState(); changed(); startWater(); },

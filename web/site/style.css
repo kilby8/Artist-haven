@@ -356,3 +356,7 @@ input.wide { width: 100%; }
 .tl-controls input { flex: 1; accent-color: var(--accent); }
 .top-bar .icon-btn.active { color: var(--accent); }
 @media (max-width: 900px) { .tool-bar { max-width: calc(100vw - 20px); bottom: 8px; } }
+
+/* ---- Shapes, ruler, grid ------------------------------------------------------------------- */
+.grid-pop { top: 72px; bottom: auto; }
+#shape-sides { width: 56px; background: var(--raised); border: 1px solid var(--divider); border-radius: 8px; padding: 5px 6px; color: var(--text); }

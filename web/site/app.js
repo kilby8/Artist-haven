@@ -31,6 +31,9 @@ const settings = Object.assign({
   selShape: 'lasso',
   selMode: 0,
   xfUniform: true,
+  grid: { on: false, size: 50, snap: false },
+  rulerOn: false,
+  shape: { kind: 'rect', style: 'outline', sides: 5, even: false },
 }, readJson('ah.settings', {}));
 // Version 2 added real blending brushes: move the smudge tool off the old airbrush default.
 if ((settings.version | 0) < 2) {
@@ -446,7 +449,11 @@ function onOpened(m) {
   xf = null;
   adjusting = null;
   $('#p-adjust').hidden = true;
-  if (!paintTools.includes(tool) && tool !== 'select') tool = lastPaintTool;
+  if (!paintTools.includes(tool) && tool !== 'select' && tool !== 'shape') tool = lastPaintTool;
+  placeRuler();
+  $('#b-ruler').classList.toggle('active', !!settings.rulerOn);
+  $('#grid-pop').hidden = true;
+  syncGridUi();
   updateToolUi();
   showReference(null);
   db.getReference(m.id).then(b => { if (b && current && current.id === m.id) showReference(b); }).catch(() => {});
@@ -1483,12 +1490,20 @@ function beginPaint(e) {
   if (paintTools.includes(tool) && tool !== 'eraser' && !isEraserTip(e) && tool !== 'smudge' && settings.recent[0] !== (settings.color | 0)) {
     pushRecent(settings.color);
   }
-  call('begin', { params: strokeParams(e), point: pointFrom(e) });
+  input.onRuler = false;
+  if (rulerOn() && paintTools.includes(tool)) {
+    const [x, y] = toDoc(e.clientX, e.clientY);
+    input.onRuler = rulerDistance(x, y) * view.s < RULER_PULL;
+  }
+  call('begin', { params: strokeParams(e), point: paintPoint(e) });
   armHold();
 }
 
+function paintPoint(e) { return input.onRuler ? onRuler(pointFrom(e)) : pointFrom(e); }
+
 function armHold() {
   clearTimeout(input.holdTimer);
+  if (input.onRuler) return; // already straight
   input.holdTimer = setTimeout(() => {
     if (input.mode === 'paint' && !input.snapped) call('quickShape');
   }, 520);
@@ -1499,7 +1514,7 @@ function movePaint(e) {
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
   const list = events.length ? events : [e];
   const pts = [];
-  for (const ev of list) pts.push(...pointFrom(ev));
+  for (const ev of list) pts.push(...paintPoint(ev));
   call('move', { points: pts });
   if (Math.hypot(e.clientX - input.holdAt[0], e.clientY - input.holdAt[1]) > 4) {
     input.holdAt = [e.clientX, e.clientY];
@@ -1578,6 +1593,7 @@ stage.addEventListener('pointerdown', (e) => {
   const pen = e.pointerType === 'pen';
   if (pen && !settings.stylusSeen) { settings.stylusSeen = true; saveSettings(); }
   input.hover = pen || e.pointerType === 'mouse' ? [e.clientX, e.clientY] : null;
+  if (!(e.pointerType === 'touch' && input.touches.size > 0) && !xf && !adjusting && grabRuler(e)) return;
 
   if (e.pointerType === 'touch') {
     input.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1591,6 +1607,7 @@ stage.addEventListener('pointerdown', (e) => {
       }
       if (input.mode === 'dropper') $('#loupe').hidden = true;
       if (input.mode === 'select') { selDraft = null; }
+      if (input.mode === 'shape') { shapeDraft = null; }
       if (input.mode === 'liquify') endLiquify();
       if (input.mode === 'xf') endXfDrag();
       input.mode = 'gesture';
@@ -1617,6 +1634,7 @@ stage.addEventListener('pointerdown', (e) => {
   }
   if (tool === 'select' && !isBarrel(e)) { beginSelect(e); return; }
   if (tool === 'liquify' && !isBarrel(e) && !input.alt) { beginLiquify(e); return; }
+  if (tool === 'shape' && !isBarrel(e) && !input.alt) { beginShape(e); return; }
 
   if (tool === 'dropper' || input.alt || isBarrel(e)) {
     input.mode = 'dropper';
@@ -1657,6 +1675,8 @@ stage.addEventListener('pointermove', (e) => {
   else if (input.mode === 'select') moveSelect(e);
   else if (input.mode === 'xf') moveXfDrag(e);
   else if (input.mode === 'liquify') { moveLiquify(e); drawOverlay(); }
+  else if (input.mode === 'shape') moveShape(e);
+  else if (input.mode === 'ruler') moveRuler(e);
 });
 
 function pointerEnd(e, cancelled) {
@@ -1688,6 +1708,8 @@ function pointerEnd(e, cancelled) {
   else if (input.mode === 'select') endSelect(e, cancelled);
   else if (input.mode === 'xf') endXfDrag();
   else if (input.mode === 'liquify') endLiquify();
+  else if (input.mode === 'shape') endShape(cancelled);
+  else if (input.mode === 'ruler') { input.mode = null; input.pointerId = null; }
   else if (input.mode === 'dropper') { sampleAt(e, true); input.mode = null; input.pointerId = null; }
   else if (input.mode === 'fill') {
     if (!cancelled && Math.hypot(e.clientX - input.start.x, e.clientY - input.start.y) < 12) {
@@ -1722,6 +1744,7 @@ stage.addEventListener('wheel', (e) => {
 function drawOverlay() {
   octx.clearRect(0, 0, innerWidth, innerHeight);
   if (!current) return;
+  drawGrid();
   if (settings.symmetry) {
     octx.save();
     octx.strokeStyle = 'rgba(111,168,255,.75)';
@@ -1738,6 +1761,8 @@ function drawOverlay() {
   drawAnts();
   drawSelDraft();
   drawTransform();
+  drawRuler();
+  drawShapeDraft();
   const showSize = sliderPreview;
   const at = showSize ? [innerWidth / 2, innerHeight / 2] : input.hover;
   if (!at || !brushes.length) return;
@@ -1762,6 +1787,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') { e.preventDefault(); call('select', { op: 'invert' }); return; }
   if ((e.ctrlKey || e.metaKey) && k === 't') { e.preventDefault(); startMoveTool(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'j') { e.preventDefault(); call('select', { op: 'copy' }); return; }
+  if ((e.ctrlKey || e.metaKey) && k === "'") { e.preventDefault(); toggleGrid(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); call('saveNow'); toast('Saved', 900); return; }
   if (e.ctrlKey || e.metaKey) return;
   if (k === ' ') { input.space = true; stage.classList.add('space'); e.preventDefault(); return; }
@@ -1782,6 +1808,8 @@ document.addEventListener('keydown', (e) => {
   if ((k === 'delete' || k === 'backspace') && doc.hasSelection) { call('select', { op: 'clear' }); return; }
   if (k === 'm') { finishTransform(true); tool = 'select'; updateToolUi(); return; }
   if (k === 'v') { startMoveTool(); return; }
+  if (k === 'r') { toggleRuler(); return; }
+  if (k === 'u') { finishTransform(true); tool = 'shape'; updateToolUi(); return; }
   if (k === 'b') selectTool('brush');
   else if (k === 's') selectTool('smudge');
   else if (k === 'e') selectTool('eraser');
@@ -2381,6 +2409,9 @@ function syncToolBars() {
   $('#sel-bar').hidden = tool !== 'select';
   $('#xf-bar').hidden = tool !== 'move' || !xf;
   $('#lq-bar').hidden = tool !== 'liquify';
+  $('#shape-bar').hidden = tool !== 'shape';
+  $('#b-shape').classList.toggle('active', tool === 'shape');
+  if (tool === 'shape') syncShapeBar();
   $('#b-select').classList.toggle('active', tool === 'select');
   $('#b-move').classList.toggle('active', tool === 'move');
   $('#xf-uniform').classList.toggle('on', settings.xfUniform !== false);
@@ -2776,6 +2807,300 @@ async function openPsdFile(file) {
   const opened = waitFor('opened');
   call('openPsd', { id, name: file.name.replace(/\.(psd|psb)$/i, ''), bytes }, [bytes]);
   await opened;
+}
+
+// ---- Grid ------------------------------------------------------------------------------------
+
+function gridOn() { return !!(settings.grid && settings.grid.on); }
+function snapToGrid(x, y) {
+  if (!gridOn() || !settings.grid.snap) return [x, y];
+  const g = settings.grid.size;
+  return [Math.round(x / g) * g, Math.round(y / g) * g];
+}
+function drawGrid() {
+  if (!gridOn()) return;
+  let g = settings.grid.size;
+  // Too dense to see on screen: show every 2nd, 4th... line instead.
+  while (g * view.s < 6) g *= 2;
+  const major = settings.grid.size * 4;
+  octx.save();
+  const line = (x0, y0, x1, y1, strong) => {
+    const a = toScreen(x0, y0), b = toScreen(x1, y1);
+    octx.strokeStyle = strong ? 'rgba(80,120,200,.45)' : 'rgba(80,120,200,.22)';
+    octx.beginPath(); octx.moveTo(a[0], a[1]); octx.lineTo(b[0], b[1]); octx.stroke();
+  };
+  octx.lineWidth = 1;
+  for (let x = 0; x <= doc.width; x += g) line(x, 0, x, doc.height, x % major === 0);
+  for (let y = 0; y <= doc.height; y += g) line(0, y, doc.width, y, y % major === 0);
+  octx.restore();
+}
+function syncGridUi() {
+  $('#b-grid').classList.toggle('active', gridOn());
+  $('#grid-size').value = settings.grid.size;
+  $('#grid-size').nextElementSibling.textContent = settings.grid.size + ' px';
+  $('#grid-snap').classList.toggle('on', !!settings.grid.snap);
+}
+function toggleGrid(show) {
+  settings.grid.on = show ?? !settings.grid.on;
+  saveSettings();
+  $('#grid-pop').hidden = !settings.grid.on;
+  syncGridUi();
+  drawOverlay();
+}
+$('#b-grid').addEventListener('click', () => toggleGrid());
+$('#grid-size').addEventListener('input', (e) => { settings.grid.size = +e.target.value; saveSettings(); syncGridUi(); drawOverlay(); });
+$('#grid-snap').addEventListener('click', () => { settings.grid.snap = !settings.grid.snap; saveSettings(); syncGridUi(); });
+$('#grid-off').addEventListener('click', () => toggleGrid(false));
+$('#grid-close').addEventListener('click', () => { $('#grid-pop').hidden = true; });
+
+// ---- Ruler -----------------------------------------------------------------------------------
+// A straight guide on the canvas. Strokes that start near it are pulled onto its line, so
+// freehand pressure and texture are kept but the line comes out straight. Drag the middle
+// handle to move it and the round knob to turn it (it clicks to 15° steps).
+
+let ruler = null;          // { cx, cy, a } in canvas pixels and radians
+const RULER_GRAB = 22;     // screen pixels
+const RULER_PULL = 60;     // strokes starting this close (screen pixels) follow the ruler
+function rulerOn() { return !!settings.rulerOn && !!ruler; }
+function placeRuler() { ruler = { cx: doc.width / 2, cy: doc.height / 2, a: 0 }; }
+function rulerDir() { return [Math.cos(ruler.a), Math.sin(ruler.a)]; }
+function rulerKnob() {
+  // The turning knob sits a fixed screen distance from the middle, whatever the zoom.
+  const [dx, dy] = rulerDir();
+  const k = 130 / view.s;
+  return [ruler.cx + dx * k, ruler.cy + dy * k];
+}
+function rulerDistance(x, y) {
+  const [dx, dy] = rulerDir();
+  return Math.abs((x - ruler.cx) * dy - (y - ruler.cy) * dx);
+}
+function onRuler(q) {
+  const [dx, dy] = rulerDir();
+  const t = (q[0] - ruler.cx) * dx + (q[1] - ruler.cy) * dy;
+  q[0] = ruler.cx + dx * t;
+  q[1] = ruler.cy + dy * t;
+  return q;
+}
+function toggleRuler(on) {
+  settings.rulerOn = on ?? !settings.rulerOn;
+  saveSettings();
+  if (settings.rulerOn && (!ruler || ruler.cx < 0 || ruler.cy < 0 || ruler.cx > doc.width || ruler.cy > doc.height)) placeRuler();
+  $('#b-ruler').classList.toggle('active', !!settings.rulerOn);
+  if (settings.rulerOn) toast('Strokes that start near the ruler come out straight. Drag its handles to move or turn it.', 3500);
+  drawOverlay();
+}
+$('#b-ruler').addEventListener('click', () => toggleRuler());
+
+/** Starts dragging a ruler handle if the pointer is on one. */
+function grabRuler(e) {
+  if (!rulerOn()) return false;
+  const m = toScreen(ruler.cx, ruler.cy), k = toScreen(...rulerKnob());
+  let part = null;
+  if (Math.hypot(e.clientX - k[0], e.clientY - k[1]) < RULER_GRAB) part = 'turn';
+  else if (Math.hypot(e.clientX - m[0], e.clientY - m[1]) < RULER_GRAB) part = 'move';
+  if (!part) return false;
+  const [x, y] = toDoc(e.clientX, e.clientY);
+  input.mode = 'ruler';
+  input.pointerId = e.pointerId;
+  input.ruler = { part, x, y, cx: ruler.cx, cy: ruler.cy };
+  return true;
+}
+function moveRuler(e) {
+  const g = input.ruler;
+  let [x, y] = toDoc(e.clientX, e.clientY);
+  if (g.part === 'move') {
+    [ruler.cx, ruler.cy] = snapToGrid(g.cx + x - g.x, g.cy + y - g.y);
+  } else {
+    let a = Math.atan2(y - ruler.cy, x - ruler.cx);
+    const step = Math.PI / 12;
+    const snapped = Math.round(a / step) * step;
+    if (e.shiftKey || Math.abs(a - snapped) < 0.035) a = snapped;
+    ruler.a = a;
+  }
+  drawOverlay();
+}
+function drawRuler() {
+  if (!rulerOn()) return;
+  const [dx, dy] = rulerDir();
+  const far = (doc.width + doc.height) * 2;
+  const a = toScreen(ruler.cx - dx * far, ruler.cy - dy * far), b = toScreen(ruler.cx + dx * far, ruler.cy + dy * far);
+  const m = toScreen(ruler.cx, ruler.cy), k = toScreen(...rulerKnob());
+  octx.save();
+  // A soft band so the ruler reads as an object, with the line strokes snap to in the middle.
+  octx.lineCap = 'butt';
+  octx.strokeStyle = 'rgba(111,168,255,.12)'; octx.lineWidth = 34;
+  octx.beginPath(); octx.moveTo(a[0], a[1]); octx.lineTo(b[0], b[1]); octx.stroke();
+  octx.strokeStyle = 'rgba(40,80,160,.8)'; octx.lineWidth = 1.5;
+  octx.beginPath(); octx.moveTo(a[0], a[1]); octx.lineTo(b[0], b[1]); octx.stroke();
+  // Handles.
+  const disc = (p, r, fill) => {
+    octx.beginPath(); octx.arc(p[0], p[1], r, 0, Math.PI * 2);
+    octx.fillStyle = fill; octx.fill();
+    octx.lineWidth = 2; octx.strokeStyle = 'rgba(40,80,160,.9)'; octx.stroke();
+  };
+  disc(m, 12, 'rgba(255,255,255,.95)');
+  octx.fillStyle = 'rgba(40,80,160,.9)';
+  octx.beginPath(); octx.arc(m[0], m[1], 3.5, 0, Math.PI * 2); octx.fill();
+  disc(k, 9, 'rgba(111,168,255,.95)');
+  if (input.mode === 'ruler' && input.ruler.part === 'turn') {
+    let deg = Math.round(-ruler.a * 180 / Math.PI) % 180;
+    if (deg < 0) deg += 180;
+    octx.font = '600 13px system-ui, sans-serif';
+    octx.fillStyle = 'rgba(20,30,60,.9)';
+    octx.fillText(deg + '°', k[0] + 14, k[1] - 12);
+  }
+  octx.restore();
+}
+
+// ---- Shapes ----------------------------------------------------------------------------------
+// Drag out a shape; on release it is drawn with the current brush, size and colour (and/or
+// filled with the colour), so it looks like the rest of the drawing.
+
+let shapeDraft = null;     // { kind, x0, y0, x1, y1, even }
+
+function syncShapeBar() {
+  const s = settings.shape;
+  for (const b of $$('#shape-kinds button')) b.classList.toggle('active', b.dataset.kind === s.kind);
+  for (const b of $$('#shape-styles button')) b.classList.toggle('active', b.dataset.style === s.style);
+  $('#shape-sides-wrap').hidden = s.kind !== 'polygon' && s.kind !== 'star';
+  $('#shape-sides').value = s.sides;
+  $('#shape-even').classList.toggle('on', !!s.even);
+  $('#shape-styles button[data-style=fill]').disabled = s.kind === 'line';
+  $('#shape-styles button[data-style=both]').disabled = s.kind === 'line';
+}
+$('#shape-kinds').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  settings.shape.kind = b.dataset.kind; saveSettings(); syncShapeBar();
+});
+$('#shape-styles').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  settings.shape.style = b.dataset.style; saveSettings(); syncShapeBar();
+});
+$('#shape-sides').addEventListener('change', (e) => {
+  settings.shape.sides = clamp(Math.round(+e.target.value || 5), 3, 24); saveSettings(); syncShapeBar();
+});
+$('#shape-even').addEventListener('click', () => { settings.shape.even = !settings.shape.even; saveSettings(); syncShapeBar(); });
+$('#b-shape').addEventListener('click', () => {
+  finishTransform(true);
+  tool = tool === 'shape' ? lastPaintTool : 'shape';
+  updateToolUi();
+});
+
+function beginShape(e) {
+  let [x, y] = toDoc(e.clientX, e.clientY);
+  [x, y] = snapToGrid(x, y);
+  input.mode = 'shape';
+  input.pointerId = e.pointerId;
+  shapeDraft = { kind: settings.shape.kind, x0: x, y0: y, x1: x, y1: y, even: !!settings.shape.even };
+}
+function moveShape(e) {
+  const d = shapeDraft;
+  let [x, y] = toDoc(e.clientX, e.clientY);
+  [x, y] = snapToGrid(x, y);
+  d.x1 = x; d.y1 = y;
+  d.even = !!settings.shape.even !== e.shiftKey;
+  drawOverlay();
+}
+
+/** The shape as a list of corner points (x, y, ...) in canvas pixels, and whether it closes. */
+function shapePoints(d) {
+  let { x0, y0, x1, y1 } = d;
+  const pts = [];
+  if (d.kind === 'line') {
+    if (d.even) {
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const step = Math.PI / 12;
+      const a = Math.round(Math.atan2(y1 - y0, x1 - x0) / step) * step;
+      x1 = x0 + Math.cos(a) * len; y1 = y0 + Math.sin(a) * len;
+    }
+    return { pts: [x0, y0, x1, y1], closed: false };
+  }
+  if (d.kind === 'rect' || d.kind === 'ellipse') {
+    if (d.even) {
+      const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      x1 = x0 + Math.sign(x1 - x0 || 1) * s; y1 = y0 + Math.sign(y1 - y0 || 1) * s;
+    }
+    if (d.kind === 'rect') return { pts: [x0, y0, x1, y0, x1, y1, x0, y1], closed: true };
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = Math.abs(x1 - x0) / 2, ry = Math.abs(y1 - y0) / 2;
+    const n = clamp(Math.round(Math.PI * (rx + ry) / 3), 24, 720);
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; pts.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry); }
+    return { pts, closed: true };
+  }
+  // Polygon and star: from the centre out to the first corner.
+  const r = Math.hypot(x1 - x0, y1 - y0);
+  let a0 = Math.atan2(y1 - y0, x1 - x0);
+  if (d.even) a0 = -Math.PI / 2; // upright
+  const sides = settings.shape.sides;
+  const star = d.kind === 'star';
+  const n = star ? sides * 2 : sides;
+  for (let i = 0; i < n; i++) {
+    const a = a0 + i / n * Math.PI * 2;
+    const rr = star && i % 2 ? r * 0.45 : r;
+    pts.push(x0 + Math.cos(a) * rr, y0 + Math.sin(a) * rr);
+  }
+  return { pts, closed: true };
+}
+
+function endShape(cancelled) {
+  const d = shapeDraft;
+  shapeDraft = null;
+  input.mode = null;
+  input.pointerId = null;
+  drawOverlay();
+  if (!d || cancelled) return;
+  if (Math.hypot(d.x1 - d.x0, d.y1 - d.y0) * view.s < 4) return; // a tap
+  const { pts, closed } = shapePoints(d);
+  const style = d.kind === 'line' ? 'outline' : settings.shape.style;
+  if (style !== 'outline') call('fillShape', { points: pts, color: settings.color });
+  if (style !== 'fill') drawShapeStroke(pts, closed);
+}
+
+/** Draws a corner list with the current brush as one stroke. */
+function drawShapeStroke(pts, closed) {
+  let list = pts.slice();
+  if (closed) {
+    // Start halfway along the first side and go round past the start, so the brush's thin
+    // tapered ends lie on top of full-width paint instead of leaving a gap.
+    const mx = (pts[0] + pts[2]) / 2, my = (pts[1] + pts[3]) / 2;
+    list = [mx, my, ...pts.slice(2), pts[0], pts[1], pts[2], pts[3]];
+  }
+  // Fill in the straight runs so the brush lays dabs evenly along them.
+  const out = [];
+  let t = performance.now();
+  const step = Math.max(1, sizeFor(tool) / 8);
+  for (let i = 0; i < list.length - 2; i += 2) {
+    const ax = list[i], ay = list[i + 1], bx = list[i + 2], by = list[i + 3];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
+    for (let j = i === 0 ? 0 : 1; j <= n; j++) {
+      out.push(ax + (bx - ax) * j / n, ay + (by - ay) * j / n, 1, 0, 0, t);
+      t += 1;
+    }
+  }
+  if (out.length < 12) return;
+  const fake = { pointerType: 'mouse', button: 0, buttons: 1 };
+  const params = Object.assign(strokeParams(fake), { usePressure: false, streamline: 0 });
+  call('begin', { params, point: out.slice(0, 6) });
+  call('move', { points: out.slice(6) });
+  call('end');
+}
+
+function drawShapeDraft() {
+  if (!shapeDraft) return;
+  const { pts, closed } = shapePoints(shapeDraft);
+  octx.save();
+  octx.beginPath();
+  for (let i = 0; i < pts.length; i += 2) {
+    const p = toScreen(pts[i], pts[i + 1]);
+    if (i === 0) octx.moveTo(p[0], p[1]); else octx.lineTo(p[0], p[1]);
+  }
+  if (closed) octx.closePath();
+  if (shapeDraft.kind !== 'line' && settings.shape.style !== 'outline') { octx.fillStyle = hex(settings.color) + '55'; octx.fill(); }
+  octx.lineWidth = Math.max(1, sizeFor(tool) * view.s);
+  octx.lineJoin = 'round'; octx.lineCap = 'round';
+  octx.strokeStyle = hex(settings.color) + 'aa';
+  if (settings.shape.style !== 'fill' || shapeDraft.kind === 'line') octx.stroke();
+  octx.lineWidth = 1; octx.setLineDash([6, 5]); octx.strokeStyle = 'rgba(111,168,255,.9)'; octx.stroke();
+  octx.restore();
 }
 
 // ---- Start -----------------------------------------------------------------------------------

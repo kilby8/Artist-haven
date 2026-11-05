@@ -178,4 +178,21 @@ class AdjustLiquifyGroupsTest {
         assertEquals(under, doc.activeLayer!!.surface.getPixel(150, 90))
         assertTrue(Pixels.alpha(doc.activeLayer!!.surface.getPixel(50, 30)) > 0)
     }
+
+    @Test
+    fun fillPolygonFillsInsideOnlyAndKeepsTheSelection() {
+        val doc = Document.blank(200, 120)
+        val editor = Editor(doc)
+        editor.selectPolygon(floatArrayOf(0f, 0f, 100f, 0f, 100f, 120f, 0f, 120f))
+        val sel = doc.selection
+        val steps = editor.history.undoCount
+        editor.fillPolygon(floatArrayOf(20f, 20f, 180f, 20f, 180f, 100f, 20f, 100f), red)
+        assertEquals(red, straight(doc, 50, 60))
+        assertEquals("outside the selection", 0, Pixels.alpha(doc.activeLayer!!.surface.getPixel(150, 60)))
+        assertEquals("outside the shape", 0, Pixels.alpha(doc.activeLayer!!.surface.getPixel(50, 10)))
+        assertEquals(sel, doc.selection)
+        assertEquals(steps + 1, editor.history.undoCount)
+        editor.undo()
+        assertEquals(0, Pixels.alpha(doc.activeLayer!!.surface.getPixel(50, 60)))
+    }
 }

@@ -35,6 +35,9 @@
     <symbol id="i-move" viewBox="0 0 24 24"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></symbol>
+    <symbol id="i-shapes" viewBox="0 0 24 24"><path d="M2 2h10v10H2zm2 2v6h6V4zm13.5 6a4.5 4.5 0 110 9 4.5 4.5 0 010-9zm0 2a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM7 13.5l5 8.5H2zm0 4l-1.5 2.5h3z"/></symbol>
+    <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M2.1 16.3L16.3 2.1a1 1 0 011.4 0l4.2 4.2a1 1 0 010 1.4L7.7 21.9a1 1 0 01-1.4 0l-4.2-4.2a1 1 0 010-1.4zm2.1.7l2.8 2.8L19.8 7 17 4.2l-1.4 1.4 1.4 1.4-1.4 1.4-1.4-1.4-1.4 1.4 2.1 2.1-1.4 1.4-2.1-2.1-1.4 1.4 1.4 1.4-1.4 1.4-1.4-1.4-1.4 1.4 2.1 2.1-1.4 1.4-2.1-2.1z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M3 3h18v18H3zm2 2v4h4V5zm6 0v4h2V5zm4 0v4h4V5zM5 11v2h4v-2zm6 0v2h2v-2zm4 0v2h4v-2zM5 15v4h4v-4zm6 0v4h2v-4zm4 0v4h4v-4z"/></symbol>
     <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7S5.5 10 5.5 14.5a6.5 6.5 0 0013 0C18.5 10 12 2.7 12 2.7z"/></symbol>
   </defs>
 </svg>
@@ -70,6 +73,9 @@
       <button class="icon-btn" id="b-adjust" title="Adjustments"><svg><use href="#i-wand"/></svg></button>
       <button class="icon-btn" id="b-select" title="Select (M)"><svg><use href="#i-select"/></svg></button>
       <button class="icon-btn" id="b-move" title="Move and transform (V or Ctrl+T)"><svg><use href="#i-move"/></svg></button>
+      <button class="icon-btn" id="b-shape" title="Shapes: lines, boxes, circles, polygons (U)"><svg><use href="#i-shapes"/></svg></button>
+      <button class="icon-btn" id="b-ruler" title="Ruler: strokes near it come out straight (R)"><svg><use href="#i-ruler"/></svg></button>
+      <button class="icon-btn" id="b-grid" title="Show or hide the grid (Ctrl+')"><svg><use href="#i-grid"/></svg></button>
     </div>
     <div class="title" id="doc-title"></div>
     <div class="group">
@@ -188,7 +194,7 @@
         <h3>Gestures</h3>
         <p>Pen: draw. Pen eraser end: erase. Hold the pen still at the end of a line to snap it straight or into a shape.</p>
         <p>Two fingers: move, zoom and turn. Tap with two fingers to undo, three to redo.</p>
-        <p>Keyboard: B paint, S smudge, E erase, I eyedropper, G fill, M select, V move, [ and ] size, Ctrl+Z undo, Ctrl+Y redo, Space and drag to move.</p>
+        <p>Keyboard: B paint, S smudge, E erase, I eyedropper, G fill, M select, V move, U shapes, R ruler, Ctrl+' grid, [ and ] size, Ctrl+Z undo, Ctrl+Y redo, Space and drag to move.</p>
         <p>Selections: Ctrl+A all, Ctrl+D deselect, Ctrl+Shift+I invert, Delete erases, Shift adds, Alt takes away. Transform: arrow keys nudge, Enter finishes, Esc cancels.</p>
       </div>
     </div>
@@ -235,6 +241,33 @@
       <button class="text-btn" data-xf="cancel">Cancel</button>
       <button class="primary-btn" data-xf="done">Done</button>
     </div>
+  </div>
+
+  <!-- Shape bar -->
+  <div class="tool-bar" id="shape-bar" hidden>
+    <div class="seg" id="shape-kinds">
+      <button data-kind="line" title="Straight line">Line</button>
+      <button data-kind="rect" title="Rectangle">Rectangle</button>
+      <button data-kind="ellipse" title="Oval or circle">Ellipse</button>
+      <button data-kind="polygon" title="Polygon: drag out from the centre">Polygon</button>
+      <button data-kind="star" title="Star: drag out from the centre">Star</button>
+    </div>
+    <label id="shape-sides-wrap">Sides <input type="number" id="shape-sides" min="3" max="24" step="1"></label>
+    <div class="seg" id="shape-styles">
+      <button data-style="outline" title="Draw the outline with the current brush">Outline</button>
+      <button data-style="fill" title="Fill with the current colour">Fill</button>
+      <button data-style="both" title="Fill, then draw the outline">Both</button>
+    </div>
+    <div class="seg">
+      <button id="shape-even" class="toggle" title="Squares, circles and lines at 15° steps (or hold Shift)">Keep proportions</button>
+    </div>
+  </div>
+
+  <!-- Grid settings -->
+  <div class="tool-bar grid-pop" id="grid-pop" hidden>
+    <label class="bar-slider">Grid size <input type="range" id="grid-size" min="8" max="400" step="1"><output></output></label>
+    <div class="seg"><button id="grid-snap" class="toggle" title="Shape corners and the ruler land on grid points">Snap to grid</button></div>
+    <div class="bar-end"><button class="text-btn" id="grid-off">Hide grid</button><button class="primary-btn" id="grid-close">OK</button></div>
   </div>
 
   <!-- Liquify bar -->

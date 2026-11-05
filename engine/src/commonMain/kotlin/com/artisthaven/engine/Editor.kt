@@ -415,17 +415,33 @@ class Editor(val doc: Document, val history: History = History()) {
 
     /** Fills the selection with a straight colour on the active layer. */
     fun fillSelection(color: Int): Change {
-        settlePixels()
         val sel = doc.selection ?: return Change.NONE
+        return fillCoverage(color, sel.bounds() ?: return Change.NONE, "Fill selection") { x, y -> sel.coverage(x, y) }
+    }
+
+    /**
+     * Fills a polygon ([xy] = x0, y0, x1, y1, ...) with [color] as one undo step, for the shape
+     * tool. Inside a selection only the selected part is filled; the selection is kept.
+     */
+    fun fillPolygon(xy: FloatArray, color: Int): Change {
+        if (xy.size < 6) return Change.NONE
+        val shape = Selection.polygon(doc.width, doc.height, xy)
+        val sel = doc.selection
+        val rect = shape.bounds() ?: return Change.NONE
+        return fillCoverage(color, rect, "Fill shape") { x, y -> shape.coverage(x, y) * (sel?.coverage(x, y) ?: 1f) }
+    }
+
+    private fun fillCoverage(color: Int, rect: IRect, label: String, coverage: (Int, Int) -> Float): Change {
+        settlePixels()
         val layer = doc.activeLayer ?: return Change.NONE
-        val rect = sel.bounds() ?: return Change.NONE
+        if (!layer.visible) return Change.NONE
         val target = doc.paintSurface(layer)
         val onMask = doc.paintsMask(layer)
         val before = HashMap<Int, IntArray?>()
         for (index in target.tilesIn(rect)) before[index] = target.copyTile(index)
         val src = Pixels.premultiply(color)
         for (y in rect.top until rect.bottom) for (x in rect.left until rect.right) {
-            val a = sel.coverage(x, y)
+            val a = coverage(x, y)
             if (a <= 0f) continue
             val d = target.getPixel(x, y)
             val out = if (layer.alphaLock && !onMask) {
@@ -436,7 +452,7 @@ class Editor(val doc: Document, val history: History = History()) {
             }
             target.setPixel(x, y, out)
         }
-        val cmd = PixelCommand.capture("Fill selection", layer, before, onMask) ?: return Change.NONE
+        val cmd = PixelCommand.capture(label, layer, before, onMask) ?: return Change.NONE
         history.push(cmd)
         return changed(Change(rect, true))
     }

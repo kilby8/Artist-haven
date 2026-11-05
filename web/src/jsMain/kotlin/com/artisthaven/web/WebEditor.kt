@@ -347,6 +347,7 @@ class WebEditor private constructor(private val doc: Document) {
     fun invertSelection() = apply(editor.invertSelection(), all = true)
     fun clearSelected() = apply(editor.clearSelected(), doc.activeLayerId)
     fun fillSelection(color: Int) = apply(editor.fillSelection(color), doc.activeLayerId)
+    fun fillPolygon(xy: FloatArray, color: Int) = apply(editor.fillPolygon(xy, color), doc.activeLayerId)
     fun selectionToNewLayer(cut: Boolean) = apply(editor.selectionToNewLayer(cut), all = true)
     val hasSelection: Boolean get() = doc.selection != null
 
