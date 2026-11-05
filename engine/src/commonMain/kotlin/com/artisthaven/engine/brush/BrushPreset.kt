@@ -209,6 +209,7 @@ enum class BrushCategory(val displayName: String) {
     CALLIGRAPHY("Calligraphy"),
     PAINTING("Painting"),
     BLENDING("Blending"),
+    RAKES("Rakes & Rollers"),
     WATERCOLOR("Watercolour"),
     ARTISTIC("Artistic"),
     CHARCOAL("Charcoal & Pastel"),

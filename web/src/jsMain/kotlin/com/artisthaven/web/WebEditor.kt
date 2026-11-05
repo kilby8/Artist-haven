@@ -421,6 +421,15 @@ class WebEditor private constructor(private val doc: Document) {
             preview(BrushLibrary.byId(brushId), width, height, color, background)
 
         private fun preview(brush: BrushPreset, width: Int, height: Int, color: Int, background: Int): IntArray {
+            // Watercolour is see-through pigment that only darkens the paper, so pale paint on the
+            // library's dark rows can't be seen at all. Show it as it really is: blue on paper.
+            if (brush.renderMode == RenderMode.WASH && !brush.blendOnly) {
+                return previewOn(brush, width, height, 0xFF2F6DB5.toInt(), 0xFFF6F1E7.toInt(), wash = true)
+            }
+            return previewOn(brush, width, height, color, background, wash = false)
+        }
+
+        private fun previewOn(brush: BrushPreset, width: Int, height: Int, color: Int, background: Int, wash: Boolean): IntArray {
             val doc = Document.blank(width, height, paperColor = background)
             val editor = Editor(doc)
             if (brush.blendOnly) {
@@ -447,6 +456,8 @@ class WebEditor private constructor(private val doc: Document) {
                 )
             }
             previewStroke(editor, shown, color, size, points)
+            // Let the water spread and settle, as it would on the canvas.
+            if (wash) editor.advanceWater(4000.0)
             val px = toRgba(Compositor.flatten(doc))
             return intArrayOf(width, height) + px
         }

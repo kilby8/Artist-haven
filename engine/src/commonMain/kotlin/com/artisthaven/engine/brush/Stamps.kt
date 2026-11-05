@@ -206,7 +206,110 @@ internal object Stamps {
             TipShape.MOON -> { u, v ->
                 if (hypot(u, v) < 0.88f && hypot(u - 0.38f, v - 0.18f) > 0.68f) 1f else 0f
             }
+            TipShape.DOT_ROWS_2 -> dotRows(2, 0.3f)
+            TipShape.DOT_ROWS_3 -> dotRows(3, 0.3f)
+            TipShape.DOT_ROWS_5 -> dotRows(5, 0.3f)
+            TipShape.DOT_FADE -> { u, v ->
+                // Five rows, big dots on one side shrinking to small ones on the other.
+                var m = 0f
+                for (k in 0 until 5) {
+                    val cy = -0.8f + k * 0.4f
+                    val r = 0.17f * (1f - k * 0.17f)
+                    if (hypot(u, v - cy) < r) m = 1f
+                }
+                m
+            }
+            TipShape.DOT_STAGGER -> { u, v ->
+                // Alternate rows sit half a step along, so the dots pack like a honeycomb.
+                var m = 0f
+                for (k in 0 until 5) {
+                    val cy = -0.8f + k * 0.4f
+                    val cx = if (k % 2 == 1) 0.2f else -0.2f
+                    if (hypot(u - cx, v - cy) < 0.12f) m = 1f
+                }
+                m
+            }
+            TipShape.SQUARE_ROWS -> { u, v ->
+                var m = 0f
+                for (k in 0 until 3) {
+                    val cy = -0.6f + k * 0.6f
+                    if (abs(u) < 0.17f && abs(v - cy) < 0.17f) m = 1f
+                }
+                m
+            }
+            TipShape.DIAMOND -> { u, v -> if (abs(u) / 0.68f + abs(v) / 0.92f < 1f) 1f else 0f }
+            TipShape.PENTAGON -> {
+                val poly = regularPolygon(5, 0.92f, -PI.toFloat() / 2f, cy = 0.05f)
+                return { u, v -> if (inPolygon(poly, u, v)) 1f else 0f }
+            }
+            TipShape.HEXAGON -> {
+                val poly = regularPolygon(6, 0.9f, 0f)
+                return { u, v -> if (inPolygon(poly, u, v)) 1f else 0f }
+            }
+            TipShape.DROP -> { u, v ->
+                // Round at the bottom, pointed at the top.
+                val r = hypot(u, v - 0.3f)
+                val tip = v < 0.3f && v > -0.92f && abs(u) < 0.58f * (v + 0.92f) / 1.22f
+                if (r < 0.58f || tip) 1f else 0f
+            }
+            TipShape.TARGET -> { u, v ->
+                val r = hypot(u, v)
+                if (r < 0.22f || (r > 0.42f && r < 0.6f) || (r > 0.78f && r < 0.92f)) 1f else 0f
+            }
+            TipShape.SPIRAL -> { u, v ->
+                val r = hypot(u, v)
+                if (r > 0.92f || r < 0.04f) 0f else {
+                    // An Archimedean spiral: three turns out to the rim.
+                    val a = (atan2(v, u) + PI.toFloat()) / (2f * PI.toFloat())
+                    val turns = r / 0.3f - a
+                    val f = turns - floor(turns)
+                    if (abs(f - 0.5f) < 0.17f) 1f else 0f
+                }
+            }
+            TipShape.RAKE_FINE -> dotRows(12, 0.3f)
+            TipShape.RAKE_WIDE -> dotRows(4, 0.32f)
+            TipShape.RAKE_UNEVEN -> {
+                // Bent and worn teeth: uneven gaps, thick and thin, some pressing lighter.
+                val teeth = ArrayList<FloatArray>()
+                var at = -0.9f
+                while (at < 0.9f) {
+                    val r = 0.03f + 0.08f * rnd.nextFloat()
+                    teeth += floatArrayOf(at + r, r, 0.55f + 0.45f * rnd.nextFloat())
+                    at += 2f * r + 0.04f + 0.14f * rnd.nextFloat()
+                }
+                return { u, v ->
+                    var m = 0f
+                    for (t in teeth) if (hypot(u, v - t[0]) < t[1] && t[2] > m) m = t[2]
+                    m
+                }
+            }
+            TipShape.ROLLER -> {
+                // The roller's nap: slightly uneven across its width, heavier at the two ends
+                // where paint gathers.
+                val nap = FloatArray(48) { 0.72f + 0.28f * rnd.nextFloat() }
+                return { u, v ->
+                    if (abs(u) > 0.14f || abs(v) > 0.95f) 0f else {
+                        val k = ((v + 1f) / 2f * (nap.size - 1)).toInt().coerceIn(0, nap.size - 1)
+                        if (abs(v) > 0.86f) 1f else nap[k]
+                    }
+                }
+            }
+            TipShape.ROLLER_STRIPES -> { u, v ->
+                if (abs(u) > 0.14f || abs(v) > 0.95f) 0f
+                else if (floor((v + 0.95f) / 1.9f * 7f).toInt() % 2 == 0) 1f else 0f
+            }
             else -> { u, v -> if (hypot(u, v) < 0.9f) 1f else 0f }
+        }
+    }
+
+    /** [rows] dots side by side across the stroke; [size] is the dot's share of the pitch. */
+    private fun dotRows(rows: Int, size: Float): (Float, Float) -> Float {
+        val pitch = 1.7f / (rows - 1)
+        val r = minOf(pitch * size, 0.3f)
+        return { u, v ->
+            var m = 0f
+            for (k in 0 until rows) if (hypot(u, v - (-0.85f + k * pitch)) < r) m = 1f
+            m
         }
     }
 

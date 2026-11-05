@@ -86,12 +86,34 @@ internal object Patterns {
                 }
             }
             GrainTexture.WOOD -> {
-                val noise = FloatArray(n * n)
-                Textures.fractal(noise, n, seed = 73, octaves = 4, base = 4, persistence = 0.55f)
+                // Planks seen from the face: long grain lines running down the tile that wander
+                // gently, bend round a couple of knots, and have a sharp dark edge on each growth
+                // ring with fine fibres in between. Everything repeats exactly over the tile.
+                val fibre = FloatArray(n) { rnd.nextFloat() }
+                val knots = listOf(floatArrayOf(0.3f * n, 0.25f * n, 13f), floatArrayOf(0.72f * n, 0.7f * n, 9f))
+                val p1 = rnd.nextFloat() * TAU; val p2 = rnd.nextFloat() * TAU
                 each(d, n) { x, y ->
-                    val t = x / n * 12f + noise[y.toInt() * n + x.toInt()] * 3f
-                    val ring = 0.5f + 0.5f * sin(t * TAU)
-                    (ring * ring * ring * 1.2f).coerceIn(0f, 1f)
+                    var u = x +
+                        6f * sin(TAU * (y / n) + p1) +
+                        2.5f * sin(TAU * (3f * y / n + x / n) + p2)
+                    var knot = 0f
+                    for (k in knots) {
+                        var dx = abs(x - k[0]); var dy = abs(y - k[1])
+                        if (dx > n / 2f) dx = n - dx
+                        if (dy > n / 2f) dy = n - dy
+                        val r = hypot(dx, dy * 0.6f)
+                        val sgn = if (((x - k[0]) + n * 1.5f) % n - n / 2f < 0f) -1f else 1f
+                        // Lines are pushed aside around the knot.
+                        u += sgn * 2.2f * k[2] * kotlin.math.exp(-(r / (k[2] * 2.2f)) * (r / (k[2] * 2.2f)))
+                        if (r < k[2]) knot = maxOf(knot, 1f - r / k[2])
+                    }
+                    // Growth rings of uneven width: wide pale early wood, then a thin dark line.
+                    val w = u + 2.5f * sin(TAU * u / n * 5f)
+                    val ring = frac(w / 14f)
+                    val edge = ((ring - 0.82f) / 0.12f).coerceIn(0f, 1f)
+                    val line = edge * edge * (3f - 2f * edge) * (1f - ((ring - 0.97f) / 0.03f).coerceIn(0f, 1f))
+                    val fine = fibre[((x.toInt() % n) + n) % n] * 0.12f
+                    (0.04f + 0.12f * ring + 0.75f * line + fine + 0.8f * knot * knot).coerceIn(0f, 1f)
                 }
             }
             GrainTexture.MARBLE -> {

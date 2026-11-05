@@ -129,16 +129,16 @@ class BrushLibraryTest {
     @Test
     fun tipsAndPatternsSheet() {
         val tips = TipShape.entries.filter { it.stamp }
-        val doc = Document.blank(1240, 140 + 130 * ((GrainTexture.entries.size + 5) / 6), paperColor = 0xFFFFFFFF.toInt())
+        val doc = Document.blank(1240, 200 + 130 * ((GrainTexture.entries.size + 5) / 6), paperColor = 0xFFFFFFFF.toInt())
         val editor = Editor(doc)
         val base = BrushLibrary.byId("stamp_dots")
         tips.forEachIndexed { i, t ->
-            val p = InputPoint(40f + i * 58f, 50f)
+            val p = InputPoint(40f + (i % 20) * 60f, 40f + (i / 20) * 70f)
             draw(editor, listOf(p, p.copy(x = p.x + 0.1f)), StrokeParams(base.copy(tip = t, sizeJitter = 0f, rotationJitter = 0f, flipJitter = 0f, spacing = 5f), color = 0xFF111111.toInt(), size = 54f))
         }
         GrainTexture.entries.forEachIndexed { i, g ->
             val x = 20f + (i % 6) * 205f
-            val y = 140f + (i / 6) * 130f
+            val y = 200f + (i / 6) * 130f
             val brush = BrushLibrary.byId("pattern_halftone").copy(grain = g, grainDepth = 1f, tooth = 0f)
             draw(editor, TestSupport.line(x + 40f, y + 60f, x + 150f, y + 60f), StrokeParams(brush, color = 0xFF263238.toInt(), size = 100f))
         }
