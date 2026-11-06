@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.artisthaven.app.ProjectStoreTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-11-05T04:56:45.352Z" hostname="runnervmnwato" time="0.492">
+  <properties/>
+  <testcase name="renameDuplicateDeleteUndelete" classname="com.artisthaven.app.ProjectStoreTest" time="0.134"/>
+  <testcase name="createPaintSaveReload" classname="com.artisthaven.app.ProjectStoreTest" time="0.097"/>
+  <testcase name="opensPhotoshopFileAsNewArtwork" classname="com.artisthaven.app.ProjectStoreTest" time="0.26"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
