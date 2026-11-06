@@ -23,6 +23,7 @@ html, body {
   font: 15px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   -webkit-user-select: none; user-select: none;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
   overscroll-behavior: none;
 }
 [hidden] { display: none !important; }
@@ -257,6 +258,7 @@ input.wide { width: 100%; }
   padding: 12px 18px; border-radius: 14px; background: var(--raised-2); box-shadow: 0 10px 30px rgba(0,0,0,.5);
   max-width: calc(100vw - 40px);
 }
+.toast-btn { margin-left: 12px; padding: 6px 14px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; }
 .boot { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); z-index: 50; }
 .spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--raised-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

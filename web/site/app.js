@@ -88,6 +88,20 @@ function toast(text, ms = 2600) {
   toastTimer = setTimeout(() => { t.hidden = true; }, ms);
 }
 
+// A toast with one button, for steps that need a fresh tap (Safari only shares from a tap).
+function actionToast(text, label, fn, ms = 12000) {
+  const t = $('#toast');
+  t.textContent = text;
+  const b = document.createElement('button');
+  b.className = 'toast-btn';
+  b.textContent = label;
+  b.addEventListener('click', () => { t.hidden = true; fn(); });
+  t.append(b);
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, ms);
+}
+
 function showDialog(id) {
   $('#scrim').hidden = false;
   $(id).hidden = false;
@@ -158,8 +172,15 @@ document.addEventListener('pointerdown', (e) => {
 
 // ---- Worker ----------------------------------------------------------------------------------
 
-const worker = new Worker('worker.js', { type: 'module' });
 const docCanvas = $('#doc');
+// The canvas is drawn from a worker, which Safari supports from iPadOS 16.4. Say so plainly
+// instead of leaving a blank screen on an older iPad.
+if (!docCanvas.transferControlToOffscreen || typeof OffscreenCanvas === 'undefined') {
+  document.body.innerHTML = '<div class="boot" style="padding:24px;text-align:center"><p>Artist Haven needs a newer browser.<br>' +
+    'On an iPad, update to iPadOS 16.4 or later in Settings, General, Software Update.</p></div>';
+  throw new Error('OffscreenCanvas is not supported');
+}
+const worker = new Worker('worker.js', { type: 'module' });
 const offscreen = docCanvas.transferControlToOffscreen();
 let brushes = [];
 let blendModes = [];
@@ -941,12 +962,14 @@ $('#studio-delete').addEventListener('click', async () => {
   updateToolUi();
   closeStudio();
 });
-$('#studio-export').addEventListener('click', () => {
+$('#studio-export').addEventListener('click', async () => {
   const b = { ...studio.brush, name: $('#studio-name').value.trim() || studio.brush.name };
   const blob = new Blob([JSON.stringify([b], null, 2)], { type: 'application/json' });
+  const fileName = b.name.replace(/[^\w\- ]+/g, '').trim() + '.brush.json';
+  if (isAppleTouch && await shareBlob(blob, fileName)) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = b.name.replace(/[^\w\- ]+/g, '').trim() + '.brush.json';
+  a.download = fileName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
@@ -1296,6 +1319,27 @@ stage.addEventListener('drop', (e) => {
 });
 
 // Export
+// iPads report a Mac browser, so a Mac with touch points is an iPad.
+const isAppleTouch = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
+// On an iPad a download link opens a preview, and in the Home Screen app it can do nothing at all.
+// The share sheet has Save Image, which puts the picture in Photos.
+async function shareBlob(blob, name) {
+  let file;
+  try { file = new File([blob], name, { type: blob.type }); } catch { return false; }
+  if (!navigator.canShare || !navigator.canShare({ files: [file] })) return false;
+  const share = () => navigator.share({ files: [file] }).catch((err) => {
+    if (!err || err.name !== 'AbortError') toast("That picture couldn't be shared.");
+  });
+  try {
+    await navigator.share({ files: [file] });
+    return true;
+  } catch (err) {
+    if (err && err.name === 'AbortError') return true;
+    // The tap that asked for the export has expired by the time the picture is ready.
+    if (err && err.name === 'NotAllowedError') { actionToast('Your picture is ready', 'Save', share); return true; }
+    return false;
+  }
+}
 let pendingExportName = null;
 function exportName(type) {
   const base = (pendingExportName || current?.name || 'Drawing').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Drawing';
@@ -1320,6 +1364,7 @@ async function saveBlob(blob, name) {
       if (err && err.name === 'AbortError') return;
     }
   }
+  if (isAppleTouch && await shareBlob(blob, name)) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -1607,6 +1652,13 @@ stage.addEventListener('pointerup', (e) => pointerEnd(e, false));
 stage.addEventListener('pointercancel', (e) => pointerEnd(e, true));
 stage.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch' && !input.mode) { input.hover = null; drawOverlay(); } });
 stage.addEventListener('contextmenu', (e) => e.preventDefault());
+// Safari on iPad: stop a long press with the Pencil or a finger from bringing up the magnifier,
+// text selection or a double-tap zoom. Pointer events still arrive.
+stage.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+stage.addEventListener('touchmove', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+// Safari ignores user-scalable=no, so a pinch anywhere would zoom the whole page.
+for (const g of ['gesturestart', 'gesturechange']) document.addEventListener(g, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 stage.addEventListener('wheel', (e) => {
   e.preventDefault();
   if (!current) return;
